@@ -199,9 +199,11 @@ function symbolTableDecode(elf, sec) {
     '<button class="mini" data-tab-jump="symbols">打开完整符号表 →</button></div>' +
     '<div class="table-scroll" style="max-height:300px"><table class="grid compact">' +
     '<thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div>' +
+    '<div class="sec-sym-slot"></div>' +
     '<div class="sp-note muted">每一列都是表项里若干个十六进制字节翻译出来的：' +
     '<b>st_name</b> 是字符串表偏移（已还原成符号名），<b>st_info</b> 拆成 bind/type，' +
-    '<b>st_shndx</b> 换算成段名，<b>st_value</b> 是地址或偏移。点击行可跳到该表项字节。</div>';
+    '<b>st_shndx</b> 换算成段名，<b>st_value</b> 是地址或偏移。' +
+    '点击任意一行 → 下方展开该符号表项的<b>解析与引用关系面板</b>（每个字段指向哪里、谁引用了它）。</div>';
 }
 
 /* ---------------- 数据段解码面板：十六进制 ↔ 字符串 / 整数 / 浮点 / 指针 ---------------- */
@@ -557,8 +559,16 @@ function renderSections() {
         }
         if (line.dataset.sym !== undefined) {
           const sym = S.elf.symbols[+line.dataset.sym];
-          if (sym) setStatus('已定位到符号 ' + sym.name + ' 的表项：' + hx(sym.fileOff) +
-            '；它指向的内容在 ' + (sym.fileOffset !== undefined ? hx(sym.fileOffset) : '（不占文件空间）'));
+          if (sym) {
+            const slot = c.querySelector('.sec-sym-slot');
+            if (slot) {
+              slot.innerHTML = symbolXrefPanel(S.elf, sym);
+              wireXref(slot);
+              slot.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
+            setStatus('已展开符号 ' + sym.name + ' 的表项解析与引用关系（表项 ' + hx(sym.fileOff) +
+              '，内容 ' + (sym.fileOffset !== undefined ? hx(sym.fileOffset) : '不占文件空间') + '）');
+          }
         }
         return;
       }
@@ -617,6 +627,7 @@ function renderSymbols() {
       '<td class="sym-acts">' +
       '<button class="mini" data-entry="1" title="跳转到该符号在符号表中的表项字节（st_name/st_value/st_info…）">表项</button>' +
       (s.fileOffset !== undefined ? '<button class="mini" data-content="1" title="跳转到该符号指向的段内容">内容</button>' : '') +
+      '<button class="mini" data-xref="1" title="展开该表项的字段解析与引用关系图">解析</button>' +
       (isFunc ? '<button class="mini" data-disasm="1" title="在反汇编视图中打开该函数">反汇编</button>' : '') +
       '</td></tr>';
   }).join('') || '<tr><td colspan="10" class="muted">没有匹配的符号</td></tr>';
@@ -670,6 +681,10 @@ function renderSymbols() {
         setStatus('已定位到符号 ' + sym.name + ' 指向的段内容：' + hx(sym.fileOffset) + '（' + sym.sec + '）');
         return;
       }
+      if (e.target.dataset.xref) {                        // 展开解析与引用关系面板
+        toggleSymXref(tr, sym);
+        return;
+      }
       if (sym.fileOffset !== undefined) {
         selectBytes(sym.fileOffset, Math.max(1, Math.min(sym.st_size || 1, 8192)), { smooth: true });
       } else if (sym.st_shndx === 0) {
@@ -679,6 +694,7 @@ function renderSymbols() {
         setStatus('符号 ' + sym.name + ' 指向的是不占文件空间的区域（如 .bss），虚拟地址 ' + hx(sym.st_value) +
           '；已改为定位它在符号表中的表项。');
       }
+      toggleSymXref(tr, sym);                             // 点行同时展开引用关系面板
     });
   });
 }

@@ -155,7 +155,7 @@ function renderDisasm() {
       hoverRange(+el.dataset.off, +el.dataset.size);
     });
     el.addEventListener('mouseleave', clearHover);
-    el.addEventListener('click', function () {
+    el.addEventListener('click', function (e) {
       const encBtn = e.target.closest('.enc-toggle');
       if (encBtn) {                                   // 展开 / 收起位域拆解
         const addr = +encBtn.dataset.enc;
@@ -167,10 +167,13 @@ function renderDisasm() {
         }
         return;
       }
-      selectBytes(+el.dataset.off, +el.dataset.size);
-      markDisasmLineForAddress(+el.dataset.addr);
+      selectBytes(+el.dataset.off, +el.dataset.size);      // 左侧 Hex 滚动 + 框选 + 闪烁 + 固定探针
+      markDisasmSelected(el);
       const sym = elf.symByAddr.get(+el.dataset.addr);
-      if (sym) setStatus('该地址是符号 ' + sym.name + ' 的入口（' + stTypeName(sym.type) + '，大小 ' + fmtComma(sym.st_size) + ' 字节）');
+      setStatus('已选中指令 ' + el.querySelector('.d-text').textContent.trim() +
+        '：文件偏移 ' + hx(+el.dataset.off) + '，' + el.dataset.size + ' 字节' +
+        '（Hex 已同步高亮）' +
+        (sym ? '；该地址是符号 ' + sym.name + ' 的入口（' + stTypeName(sym.type) + '，大小 ' + fmtComma(sym.st_size) + ' 字节）' : ''));
     });
   });
   markDisasmLineForAddress(startVA);
@@ -206,9 +209,7 @@ function openDisasmAt(vaddr, sym, secName) {
 
 function markDisasmLineForAddress(addr) {
   const el = $('.dis-line[data-addr="' + addr + '"]');
-  if (!el) return;
-  $$('.dis-line.hl').forEach(function (x) { x.classList.remove('hl'); });
-  el.classList.add('hl');
+  if (el) markDisasmSelected(el);
 }
 
 /** Hex 视图选中变化 → 反向高亮反汇编中对应的指令行 */
@@ -216,9 +217,15 @@ function markDisasmLineForOffset(off) {
   const pane = $('#pane-disasm');
   if (!pane || !pane.classList.contains('on')) return;
   const el = $('.dis-line[data-off="' + off + '"]');
-  if (!el) return;
-  $$('.dis-line.hl').forEach(function (x) { x.classList.remove('hl'); });
-  el.classList.add('hl');
+  if (el) markDisasmSelected(el);
+}
+
+/** 统一「当前选中指令」的外观：同一条指令在两侧保持一致的高亮 */
+function markDisasmSelected(el) {
+  const pane = el.closest('#pane-disasm') || document;
+  $$('.dis-line.sel, .dis-line.hl', pane).forEach(function (x) { x.classList.remove('sel', 'hl'); });
+  el.classList.add('sel', 'hl');
+  S.disasm.selectedAddr = +el.dataset.addr;
 }
 
 /* ---------------------------- 启动 ----------------------------

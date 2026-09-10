@@ -7,7 +7,8 @@ const files = [
   'src/elf-enums.js',
   'src/elf-parse.js',
   'src/disasm-riscv.js',
-  'src/disasm-x86.js'
+  'src/disasm-x86.js',
+  'src/app-symbols.js'
 ];
 
 let src = '';

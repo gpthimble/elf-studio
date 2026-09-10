@@ -1,15 +1,26 @@
 # ELF Studio — RISC-V ELF 结构可视化分析器
 
+## 🚀 立即使用（在线，免安装、免下载）
+
+> # 👉 <https://gpthimble.github.io/elf-studio/>
+
+点开就能用：**拖入你的 ELF 文件**，或者点页面上的**「加载内置示例」**先玩一玩。
+不需要注册、不需要安装、不需要服务器；页面纯静态，**ELF 文件只在你的浏览器里解析，不会上传到任何服务器**。
+
+---
+
 一个**纯前端、零依赖、单文件**的 ELF 分析工具：把本地 ELF 文件拖进浏览器，即可逐字节理解它的物理结构。
 面向 RISC-V 优化（RV32/RV64 I/M/A/F/D + 压缩指令 C + 常用 Zba/Zbb/Zbs 位操作扩展），同时支持 x86-64。
 
-> **在线使用：<https://gpthimble.github.io/elf-studio/>** 　·　仓库：<https://github.com/gpthimble/elf-studio>
+## 三种使用方式
 
-## 直接使用（三种方式，任选其一）
+| 方式 | 地址 / 做法 | 说明 |
+| --- | --- | --- |
+| **① 在线使用（推荐）** | **<https://gpthimble.github.io/elf-studio/>** | 由本仓库的 GitHub Pages 托管，任何浏览器直接打开 |
+| ② 离线单文件 | 下载仓库里的 [`elf-studio.html`](https://github.com/gpthimble/elf-studio/raw/main/elf-studio.html)，双击打开 | 无需服务器、无需安装、不联网也能用 |
+| ③ 本地构建 | `python3 build.py` | 会重新生成 `elf-studio.html` 与 `index.html` |
 
-1. **在线使用**：打开 <https://gpthimble.github.io/elf-studio/>（由本仓库的 GitHub Pages 提供；静态托管只负责把页面发给你，ELF 文件始终在浏览器本地解析，不会上传到任何服务器）。
-2. **离线使用**：下载仓库中的 `elf-studio.html`（或 `index.html`），**双击即可**——无需服务器、无需安装、不联网。
-3. **本地构建**：`python3 build.py` 会把 `src/` 打包成同一个单文件产物。
+仓库地址：<https://github.com/gpthimble/elf-studio>
 
 ---
 
@@ -39,7 +50,12 @@
 | **字节级元数据探针** | 悬停任意字节，底部探针条实时显示：**物理文件偏移（hex + 十进制）、虚拟地址（含来源段/程序头）、字节值（hex/十进制/二进制/字符）、结构分区、字段名与字段说明**，若该字段是枚举还会即时解码（例如 `e_machine` → `EM_RISCV`）。单击可固定，拖动可框选一段字节。 |
 | **枚举全量字典与字段详解** | 19 组枚举、300+ 个取值，每条都标注 **规范出处 + 取值 + 原理说明**：`EI_CLASS/EI_DATA/EI_OSABI`、`e_type`、`e_machine`、`e_version`、`p_type`、`p_flags`、`sh_type`、`sh_flags`、`st_bind/st_type`（`st_info` 的两个子字段，单独成表）、`st_other`、`st_shndx`、`DT_*`、`R_RISCV_*`、`R_X86_64_*`、RISC-V `e_flags`（含浮点 ABI / RVC / RVE / TSO 子字段解码）。**点击任意字段行 → 就地弹出该字段的全部可选取值、当前值与说明**，不跳转页面、不打断浏览节奏；弹出面板会把当前取值高亮并自动滚到眼前。另附 `Elf32/64_Ehdr、Phdr、Shdr、Sym、Rela` 的结构布局速查表（每个字段的偏移、长度、作用，可点击定位）。 |
 | **代码段指令反编译** | 提取带 `SHF_EXECINSTR` 的段并做线性扫描反汇编。RISC-V 解码器覆盖 RV32/RV64 的 I/M/A/F/D 扩展、压缩指令 C、Zicsr/Zifencei，以及常用 Zba/Zbb/Zbs/Zbc；自动识别伪指令别名（`li/mv/ret/jr/j/nop/beqz/bnez/csrr`）；跳转/分支目标若命中符号表会直接标注函数名；可切换「显示机器码 / 伪指令别名 / 压缩指令解析策略」。x86-64 使用简化解码器，覆盖常见整数与 SSE 指令。 |
-| **符号表解析与函数定位** | 解析 `.symtab` 与 `.dynsym`（名称、`st_value`、`st_size`、绑定、类型、可见性、所属段、**映射到的文件偏移**），支持按名称/地址搜索与按类型、绑定、所属表过滤。点击任意符号 → Hex 定位到其物理字节；函数符号额外提供「反汇编」按钮，直接跳到该函数入口并对齐视图。 |
+| **符号表解析与函数定位** | 解析 `.symtab` 与 `.dynsym`（名称、`st_value`、`st_size`、绑定、类型、可见性、所属段、**符号表项偏移**与**内容偏移**两列），支持按名称/地址搜索与按类型、绑定、所属表过滤。每行带「表项 / 内容 / 解析 / 反汇编」四个动作，可分别跳到表项字节、段内容、引用关系面板与反编译视图。 |
+
+**符号表项的解析与引用关系面板**（点击符号行或 `.symtab` 段里的任一行展开）：把表项那 24 个字节按字段着色分组，再逐条画出每个字段指向哪里——
+`st_name → .strtab+0x1 → "main"`、`st_shndx → 段头 #1 → .text 内容`、`st_value → 段内容 0x1000`、`st_size → [0x1000–0x1028)`，
+外加「谁引用了这个符号」：列出所有以该符号为目标的 `.rela.*` 重定位项及其修补位置。每个目标都是可点击的芯片，点一下左侧 Hex 就跳过去；
+未定义符号（`SHN_UNDEF`）会明确说明「由链接期/运行期在其它模块解析」而不会硬凑一个偏移。
 
 ### 额外加入的实用能力
 
@@ -104,6 +120,7 @@ src/
   hexview.js             多色块 Hex 视图（虚拟滚动 + 选区内联高亮）
   app-core.js            状态、文件加载、联动、字节探针、概览面板
   app-panels.js          ELF 头 / 程序头 / 段头 / 段内容 / 符号 / 重定位 / 字典面板
+  app-symbols.js         符号表项解析与引用关系面板
   app-encoding.js        指令位域对照面板（二进制 ↔ 助记符）
   app-disasm.js          反汇编视图与联动高亮
 test/

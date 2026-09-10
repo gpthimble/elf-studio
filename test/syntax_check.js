@@ -5,7 +5,7 @@
 const FILES = [
   'src/util.js', 'src/elf-const.js', 'src/elf-enums.js', 'src/elf-parse.js',
   'src/disasm-riscv.js', 'src/disasm-x86.js',
-  'src/hexview.js', 'src/app-core.js', 'src/app-panels.js', 'src/app-encoding.js', 'src/app-disasm.js'
+  'src/hexview.js', 'src/app-core.js', 'src/app-panels.js', 'src/app-symbols.js', 'src/app-encoding.js', 'src/app-disasm.js'
 ];
 
 let src = '';

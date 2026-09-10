@@ -24,6 +24,7 @@ JS_FILES = [
     'hexview.js',       # 多色块 Hex 视图
     'app-core.js',      # 状态、探针、概览面板
     'app-panels.js',    # 各结构面板
+    'app-symbols.js',   # 符号表项解析与引用关系面板
     'app-encoding.js',  # 指令位域对照面板（二进制 ↔ 助记符）
     'app-disasm.js',    # 反汇编视图
 ]

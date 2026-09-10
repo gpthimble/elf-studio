@@ -495,7 +495,55 @@ ok(sum.length > 0 && sum[0].bytes > 0, '概览统计有数据');
   }
 }
 
-/* ============================ 9. 字典完整性 ============================ */
+/* ============ 9. 符号表项解析与引用关系（符号表 hex 可视化面板） ============ */
+{
+  const elf = parseELF(Deno.readFileSync(fx + 'big-riscv64.elf'), 'big.elf');
+  const fn = elf.symbols.find(s => s.name === 'func_0000');
+  ok(fn, '找到函数符号 func_0000');
+
+  // 字段 → 字符串表
+  const strtab = symStrTab(elf, fn);
+  eq(strtab.name, '.strtab', 'st_name 通过 .symtab 的 sh_link 指向 .strtab');
+  eq(cstr(sectionBytes(elf, strtab), fn.st_name), 'func_0000', 'st_name 偏移能取回符号名');
+
+  // 字段 → 段头 → 段内容
+  const sec = elf.shdrs[fn.st_shndx];
+  eq(sec.name, '.text', 'st_shndx 指向 .text 段头');
+  eq(fn.fileOffset !== undefined, true, 'st_value 能换算成文件偏移');
+  const secOff = sec.sh_offset + (fn.st_value - sec.sh_addr);
+  eq(fn.fileOffset, secOff, 'st_value → 段内容偏移的换算正确');
+  eq(fn.st_size > 0, true, 'st_size 给出符号长度');
+
+  // 入向引用：谁引用了这个符号
+  const inbound = symInboundRelocs(elf, fn);
+  ok(Array.isArray(inbound), '入向引用查询返回数组');
+  const anyRel = elf.relocations.find(r => r.symIndex === fn.index);
+  if (anyRel) {
+    eq(inbound.length >= 1, true, '至少有一条重定位引用该符号');
+    eq(inbound[0].symIndex, fn.index, '引用项确实是该符号');
+  }
+  // 反向：符号索引不匹配的不应被算作引用
+  const other = elf.symbols.find(s => s.name === 'data_blob');
+  eq(symInboundRelocs(elf, other).every(r => r.symIndex === other.index), true, '入向引用按符号索引严格过滤');
+
+  // 面板输出：必须包含关键引用关系文字
+  const html = symbolXrefPanel(elf, fn);
+  ok(html.indexOf('st_name') >= 0 && html.indexOf('st_shndx') >= 0 && html.indexOf('st_value') >= 0,
+    '面板列出全部关键字段');
+  ok(html.indexOf('func_0000') >= 0, '面板里能直接看到符号名（字符串表解析结果）');
+  ok(html.indexOf('.text') >= 0, '面板里标出 st_shndx 对应的段名');
+  ok(html.indexOf('data-xr-off') >= 0, '面板里的引用目标都是可点击定位的');
+  ok(html.indexOf('入向引用') >= 0, '面板包含入向引用区块');
+
+  // 未定义符号：应说明由外部解析，而不是硬掰一个偏移
+  const undef = elf.symbols.find(s => s.st_shndx === 0 && s.name);
+  if (undef) {
+    const uh = symbolXrefPanel(elf, undef);
+    ok(uh.indexOf('未定义') >= 0, '未定义符号在面板中明确标注');
+  }
+}
+
+/* ============================ 10. 字典完整性 ============================ */
 for (const key of Object.keys(ENUMS)) {
   const e = ENUMS[key];
   const composite = Array.isArray(e.parts) && e.parts.length > 0;
