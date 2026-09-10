@@ -104,11 +104,12 @@ src/
   hexview.js             多色块 Hex 视图（虚拟滚动 + 选区内联高亮）
   app-core.js            状态、文件加载、联动、字节探针、概览面板
   app-panels.js          ELF 头 / 程序头 / 段头 / 段内容 / 符号 / 重定位 / 字典面板
+  app-encoding.js        指令位域对照面板（二进制 ↔ 助记符）
   app-disasm.js          反汇编视图与联动高亮
 test/
   make_fixture.py        生成测试夹具（手工构造的 RISC-V ELF + clang 交叉编译的 x86-64 ELF）
   run_tests.js           测试运行器（在 Deno 中执行浏览器脚本）
-  tests.js               299 项断言
+  tests.js               375 项断言
   syntax_check.js        语法检查 + HTML/JS 的 id 引用一致性检查
   run_all.sh             一键跑完全部验证并重新构建
   fixtures/              生成的二进制夹具
@@ -137,7 +138,7 @@ test/
 sh test/run_all.sh
 # 或分别执行
 python3 test/make_fixture.py
-deno run --allow-read test/run_tests.js     # 299 项断言
+deno run --allow-read test/run_tests.js     # 375 项断言
 deno run --allow-read test/syntax_check.js  # 语法 + id 引用检查
 ```
 
