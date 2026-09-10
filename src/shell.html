@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ELF Studio — RISC-V ELF 结构可视化分析器</title>
+<style>
+/*__CSS__*/
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="logo"><b>ELF Studio</b><span>RISC-V ELF 结构可视化分析器</span></div>
+  <button class="btn primary" id="open-btn">打开 ELF 文件</button>
+  <button class="btn" id="demo-btn">加载内置示例</button>
+  <input type="file" id="file-input" class="hidden">
+  <label class="top-chk" title="悬停 Hex 字节时，浮出该字节组在两种字节序下的整数/浮点/字符串解读"><input type="checkbox" id="byte-tip-toggle">字节解读浮窗</label>
+  <div class="grow"></div>
+  <span class="file-title" id="file-title"></span>
+  <span class="file-meta" id="file-meta"></span>
+  <input id="jump-input" placeholder="跳转：偏移 / 虚拟地址 / 段名 / 符号名 ⏎">
+</header>
+
+<div class="dropzone" id="dropzone">
+  <div class="dz-box">
+    <b>松开鼠标即可加载 ELF 文件</b>
+    <div class="muted">文件只在你的浏览器里解析，不会上传到任何服务器</div>
+  </div>
+</div>
+
+<section id="empty-state">
+  <h1>ELF Studio</h1>
+  <p>把本地 ELF 文件拖进窗口（或点击左上角按钮选择文件），即可在浏览器内即时完成解析：
+     多色块 Hex 视图、结构表格、字节级探针、枚举字典与 RISC-V 反汇编全部联动。</p>
+  <div class="feature-grid">
+    <div><b>多色块 Hex 视图</b>按 ELF 物理结构逐字节着色，一眼看清头部、代码、数据、符号表、字符串表的分界线。</div>
+    <div><b>视窗联动</b>在右侧表格、符号表或反汇编里点击任意条目，左侧 Hex 会自动滚动并高亮对应物理字节。</div>
+    <div><b>字节级探针</b>悬停任意字节即可看到文件偏移、虚拟地址、所属字段名与功能说明。</div>
+    <div><b>枚举全量字典</b>e_type、e_machine、sh_type、p_type 等枚举列出全部规范取值、定义与原理，并标记本文件实际取值。</div>
+    <div><b>RISC-V 反汇编</b>支持 RV32/RV64 I/M/A/F/D + 压缩指令 C 与常用 Zba/Zbb/Zbs 扩展，并自动标注跳转目标符号。</div>
+    <div><b>符号表导航</b>解析 .symtab / .dynsym，函数符号一键跳转反汇编并映射回 Hex 物理位置。</div>
+  </div>
+  <div class="muted small">快捷键：⌘O / Ctrl+O 打开文件　·　在 Hex 视图中用方向键、PageUp/PageDown 逐字节浏览</div>
+</section>
+
+<div id="workspace" class="hidden">
+  <div class="split">
+    <div class="left">
+      <div class="pane-h">Hex 视图 <span class="muted">按结构着色 · 单击选中 · 拖动框选 · 方向键移动</span></div>
+      <div id="hexview" style="flex:1;min-height:0;display:flex;flex-direction:column"></div>
+      <div id="inspector">
+        <div class="ins-nav">
+          <button class="mini" id="nav-field-prev" title="上一个结构字段（快捷键 [）">⟨ 字段</button>
+          <button class="mini" id="nav-byte-prev" title="上一字节（快捷键 ←）">⟨ 字节</button>
+          <button class="mini" id="nav-byte-next" title="下一字节（快捷键 →）">字节 ⟩</button>
+          <button class="mini" id="nav-field-next" title="下一个结构字段（快捷键 ]）">字段 ⟩</button>
+          <span class="ins-observe" id="ins-pin"></span>
+          <span class="ins-progress" id="ins-progress"></span>
+          <span class="ins-hint muted">方向键逐字节 · 上下键整行 · PageUp/Down 翻页 · [ ] 逐字段 · Esc 取消固定</span>
+        </div>
+        <div class="ins-row">
+          <div class="ins-cell"><label>文件偏移 (Offset)</label><span class="ins-val mono" id="ins-off">—</span></div>
+          <div class="ins-cell" style="min-width:150px"><label>虚拟地址 (VAddr)</label><span class="ins-val mono" id="ins-va">—</span></div>
+          <div class="ins-cell" style="min-width:198px"><label>字节值</label><span class="ins-val mono" id="ins-byte">—</span></div>
+          <div class="ins-cell" style="min-width:170px"><label>结构分区</label><span class="ins-val mono" id="ins-region">—</span></div>
+          <div class="ins-cell" style="min-width:178px"><label>字段</label><span class="ins-val mono" id="ins-field">—</span></div>
+        </div>
+        <div class="ins-desc" id="ins-desc"></div>
+        <div id="ins-enum"></div>
+      </div>
+    </div>
+    <div class="splitter" id="splitter" title="拖动调整左右宽度"></div>
+    <div class="right">
+      <div id="tabs"></div>
+      <div id="tabpanes">
+        <section id="pane-overview" class="on"></section>
+        <section id="pane-ehdr"></section>
+        <section id="pane-phdr"></section>
+        <section id="pane-shdr"></section>
+        <section id="pane-sections"></section>
+        <section id="pane-symbols"></section>
+        <section id="pane-relocs"></section>
+        <section id="pane-disasm"></section>
+        <section id="pane-dict"></section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer id="statusbar"><span id="status">就绪：等待加载 ELF 文件…</span></footer>
+
+<script>
+/*__DEMO__*/
+</script>
+<script>
+/*__JS__*/
+</script>
+</body>
+</html>

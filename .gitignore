@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+._*
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
+# Python
+__pycache__/
+*.pyc
+
+# 构建产物之外的本地产物
+dist/
+*.log

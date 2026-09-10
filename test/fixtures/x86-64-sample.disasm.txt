@@ -1,0 +1,42 @@
+
+/Users/thimble/Desktop/codex/elfvisuliazer/test/fixtures/x86-64-sample.o:	file format elf64-x86-64
+
+Disassembly of section .text:
+
+0000000000000000 <helper>:
+       0:      	leal	(%rdi,%rdi,2), %eax
+       3:      	incl	%eax
+       5:      	retq
+       6:      	nopw	%cs:(%rax,%rax)
+
+0000000000000010 <compute>:
+      10:      	xorl	%eax, %eax
+      12:      	testl	%edi, %edi
+      14:      	jle	0x2d <compute+0x1d>
+      16:      	movl	$0x1, %ecx
+      1b:      	nopl	(%rax,%rax)
+      20:      	movl	%ecx, %edx
+      22:      	xorl	%esi, %edx
+      24:      	addl	%edx, %eax
+      26:      	addl	$0x3, %ecx
+      29:      	decl	%edi
+      2b:      	jne	0x20 <compute+0x10>
+      2d:      	shll	$0x2, %esi
+      30:      	subl	%esi, %eax
+      32:      	retq
+      33:      	nopw	%cs:(%rax,%rax)
+
+0000000000000040 <sum_bytes>:
+      40:      	testq	%rsi, %rsi
+      43:      	je	0x60 <sum_bytes+0x20>
+      45:      	xorl	%ecx, %ecx
+      47:      	xorl	%eax, %eax
+      49:      	nopl	(%rax)
+      50:      	movzbl	(%rdi,%rcx), %edx
+      54:      	addq	%rdx, %rax
+      57:      	incq	%rcx
+      5a:      	cmpq	%rcx, %rsi
+      5d:      	jne	0x50 <sum_bytes+0x10>
+      5f:      	retq
+      60:      	xorl	%eax, %eax
+      62:      	retq
