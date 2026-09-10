@@ -3,9 +3,11 @@
 一个**纯前端、零依赖、单文件**的 ELF 分析工具：把本地 ELF 文件拖进浏览器，即可逐字节理解它的物理结构。
 面向 RISC-V 优化（RV32/RV64 I/M/A/F/D + 压缩指令 C + 常用 Zba/Zbb/Zbs 位操作扩展），同时支持 x86-64。
 
+> **在线使用：<https://gpthimble.github.io/elf-studio/>** 　·　仓库：<https://github.com/gpthimble/elf-studio>
+
 ## 直接使用（三种方式，任选其一）
 
-1. **在线使用**：打开 `https://<你的账号>.github.io/elf-studio/`（部署后由仓库的 GitHub Pages 提供；静态托管只负责把页面发给你，ELF 文件始终在浏览器本地解析，不会上传）。
+1. **在线使用**：打开 <https://gpthimble.github.io/elf-studio/>（由本仓库的 GitHub Pages 提供；静态托管只负责把页面发给你，ELF 文件始终在浏览器本地解析，不会上传到任何服务器）。
 2. **离线使用**：下载仓库中的 `elf-studio.html`（或 `index.html`），**双击即可**——无需服务器、无需安装、不联网。
 3. **本地构建**：`python3 build.py` 会把 `src/` 打包成同一个单文件产物。
 
