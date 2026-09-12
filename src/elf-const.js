@@ -548,11 +548,13 @@ const SYM_FIELDS = {
 const RELA_FIELDS = {
   32: [
     { name: 'r_offset', off: 0, size: 4, desc: '需要被修补的位置的虚拟地址。' },
-    { name: 'r_info', off: 4, size: 4, desc: '打包字段：高 24 位是符号索引，低 8 位是重定位类型。' }
+    { name: 'r_info', off: 4, size: 4, desc: '打包字段：高 24 位是符号索引，低 8 位是重定位类型。' },
+    { name: 'r_addend', off: 8, size: 4, onlyRela: true, desc: 'SHT_RELA 才有的显式加数：计算目标地址时加到符号值上（SHT_REL 无此字段，加数藏在被修补位置的原值里）。' }
   ],
   64: [
     { name: 'r_offset', off: 0, size: 8, desc: '修补位置的虚拟地址。' },
-    { name: 'r_info', off: 8, size: 8, desc: '打包字段：高 32 位是符号索引，低 32 位是重定位类型。' }
+    { name: 'r_info', off: 8, size: 8, desc: '打包字段：高 32 位是符号索引，低 32 位是重定位类型。' },
+    { name: 'r_addend', off: 16, size: 8, onlyRela: true, desc: 'SHT_RELA 才有的显式加数：计算目标地址时加到符号值上（SHT_REL 无此字段，加数藏在被修补位置的原值里）。' }
   ]
 };
 

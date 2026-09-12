@@ -57,6 +57,18 @@
 外加「谁引用了这个符号」：列出所有以该符号为目标的 `.rela.*` 重定位项及其修补位置。每个目标都是可点击的芯片，点一下左侧 Hex 就跳过去；
 未定义符号（`SHN_UNDEF`）会明确说明「由链接期/运行期在其它模块解析」而不会硬凑一个偏移。
 
+**重定位表（`.rela.text` 等）的解析与引用链路面板**（段内容里点任一重定位项，或重定位页点任一行展开）：
+
+- **段总览**先回答「哪些符号是可重定位的」：把这段重定位涉及的所有符号列成芯片，标出各自被引用的次数与来源——
+  `#405 puts ×3 · 未定义（外部符号）`、`#203 func_0001 ×1 · 定义于 .text`；点芯片直接跳到该符号在符号表中的表项。
+- **单条重定位项的字段拆解**：`r_offset` / `r_info` / `r_addend` 三个字段按字节着色分组，
+  并把 `r_info` 这个打包整数**在位域条上拆成两段**（ELF64：高 32 位符号索引、低 32 位类型；ELF32：高 24 / 低 8），
+  同时给出各自的二进制、十六进制与十进制，例如 `sym_index = 405`、`type = 19 → R_RISCV_CALL_PLT`。
+- **引用关系链路**逐条列出：**改成谁**（`r_info` → 符号表项 → 符号名 → 符号指向的内容，未定义符号会标注「由外部提供」）、
+  **按什么规则改**（重定位类型名称 + 字典里的原理说明）、**在哪儿改**（`r_offset` → 虚拟地址 → 文件偏移 → 所在段，
+  并直接反汇编出被修补的那几条指令，因为 RISC-V 的重定位改的正是 `auipc`/`jalr` 里的立即数）、以及 `r_addend` 的加数含义。
+- 面板里的每个目标（表项字节、被修补位置、符号表项、符号内容、被修补指令）都可点击，左侧 Hex 与探针同步定位。
+
 ### 额外加入的实用能力
 
 - **逐位 / 逐字段浏览**：探针上有一排导航按钮，键盘也能全程操作——
@@ -121,12 +133,13 @@ src/
   app-core.js            状态、文件加载、联动、字节探针、概览面板
   app-panels.js          ELF 头 / 程序头 / 段头 / 段内容 / 符号 / 重定位 / 字典面板
   app-symbols.js         符号表项解析与引用关系面板
+  app-relocs.js          重定位项解析与引用链路面板
   app-encoding.js        指令位域对照面板（二进制 ↔ 助记符）
   app-disasm.js          反汇编视图与联动高亮
 test/
   make_fixture.py        生成测试夹具（手工构造的 RISC-V ELF + clang 交叉编译的 x86-64 ELF）
   run_tests.js           测试运行器（在 Deno 中执行浏览器脚本）
-  tests.js               375 项断言
+  tests.js               416 项断言
   syntax_check.js        语法检查 + HTML/JS 的 id 引用一致性检查
   run_all.sh             一键跑完全部验证并重新构建
   fixtures/              生成的二进制夹具
@@ -155,7 +168,7 @@ test/
 sh test/run_all.sh
 # 或分别执行
 python3 test/make_fixture.py
-deno run --allow-read test/run_tests.js     # 375 项断言
+deno run --allow-read test/run_tests.js     # 416 项断言
 deno run --allow-read test/syntax_check.js  # 语法 + id 引用检查
 ```
 

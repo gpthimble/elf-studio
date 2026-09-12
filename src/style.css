@@ -517,6 +517,38 @@ ul.plain li.warn { color: var(--warn); }
 .sec-enc-slot .ie { background: #0a0e14; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; }
 
 /* 数据段解码面板 */
+/* 重定位解析面板 */
+.rl-info-title { margin: 7px 0 4px; font-size: 11.5px; color: #ffd8a8; }
+.rl-strip { display: flex; gap: 3px; margin-bottom: 8px; }
+.rl-seg {
+  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px;
+  background: color-mix(in srgb, var(--rc) 20%, #0d1117);
+  border: 1px solid color-mix(in srgb, var(--rc) 55%, transparent);
+  border-radius: 5px; padding: 3px 7px; overflow: hidden;
+}
+.rl-seg i { font-style: normal; font-size: 9.5px; color: var(--rc); white-space: nowrap; }
+.rl-seg b { font-weight: 500; font-size: 11px; color: #dfe8f3; word-break: break-all; }
+.rl-seg em { font-style: normal; font-size: 10.5px; color: #7fe0bd; }
+.rl-chain { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; padding: 3px 0; font-size: 11.5px; }
+.rl-label { flex: none; width: 9.5ch; color: var(--fg-mute); font-size: 11px; }
+.rl-body { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap; min-width: 0; }
+.rl-insns { margin: 4px 0 0 10px; border-left: 2px solid #2c4a68; padding-left: 8px; }
+.rl-insn {
+  display: grid; grid-template-columns: 11ch 15ch 1fr; gap: 8px;
+  font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; cursor: crosshair;
+  padding: 1px 4px; border-radius: 4px;
+}
+.rl-insn:hover { background: rgba(77, 171, 247, .12); }
+.rl-summary { margin: 7px 0; padding: 7px 9px; background: #0f141c; border-left: 3px solid #4b3f8f; border-radius: 5px; }
+.rl-sum-title { font-size: 11.5px; color: #c8d3e0; margin-bottom: 5px; }
+.rl-sum-title b { color: #c3b6ff; }
+.rl-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 5px; }
+.reloc-xref > td { background: #0c1017; padding: 10px 12px !important; }
+.reloc-xref .xs { max-width: 100%; }
+.sec-reloc-slot:empty { display: none; }
+.sec-reloc-slot { margin-top: 8px; }
+.sec-reloc-slot .xs { background: #0a0e14; border: 1px solid var(--line); border-radius: 7px; padding: 9px 11px; }
+
 .xs { font-size: 11.5px; }
 .xs-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .xs-head b { font-size: 13px; color: #9fd0ff; }

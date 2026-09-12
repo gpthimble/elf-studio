@@ -547,6 +547,7 @@ function buildAnnotations(elf) {
   for (const r of elf.relocations) {
     const holder = { type: 'rela', index: r.index, table: r.table, size: elf.is64 ? (r.addend === null ? 16 : 24) : (r.addend === null ? 8 : 12) };
     for (const f of RELA_FIELDS[bits]) {
+      if (f.onlyRela && r.addend === null) continue;     // SHT_REL 没有 r_addend 字段
       ann.push({
         start: r.fileOff + f.off, end: r.fileOff + f.off + f.size, size: f.size,
         field: f.name, desc: f.desc, enumKey: f.name === 'r_info' ? relocEnumKey : null,

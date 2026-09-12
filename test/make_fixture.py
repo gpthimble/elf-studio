@@ -445,6 +445,7 @@ def make_big():
     syms.append(struct.pack('<IBBHQQ', n_data, (1 << 4) | 1, 2, 3, data_addr, len(data)))
     syms.append(struct.pack('<IBBHQQ', n_arr, (1 << 4) | 1, 0, 4, data_addr + 0x800, 0x100))
     syms.append(struct.pack('<IBBHQQ', n_undef, (1 << 4) | 2, 0, 0, 0, 0))     # 未定义（外部调用）
+    undef_idx = len(syms) - 1
     symtab = b''.join(syms)
     strtab_off = sym_off + len(symtab)
 
@@ -455,6 +456,11 @@ def make_big():
         sym_idx = first_global + (i + 1) % NFUNC
         rtype = (18, 23, 19)[i % 3]          # R_RISCV_CALL / PCREL_HI20 / CALL_PLT
         rela_text += struct.pack('<QQq', r_off, (sym_idx << 32) | rtype, 0)
+    # 外部调用：引用未定义符号 puts（这类「需要重定位的引用」最典型的场景）
+    ext_idx = [0, 3, 7]
+    for i, fi in enumerate(ext_idx):
+        r_off = text_addr + entry[fi] + 8
+        rela_text += struct.pack('<QQq', r_off, (undef_idx << 32) | 19, 0)   # R_RISCV_CALL_PLT
     rela_dyn = bytearray()
     for i in range(16):
         rela_dyn += struct.pack('<QQq', data_addr + i * 8, 3, 0x100 + i * 8)   # R_RISCV_RELATIVE

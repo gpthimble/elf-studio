@@ -8,7 +8,8 @@ const files = [
   'src/elf-parse.js',
   'src/disasm-riscv.js',
   'src/disasm-x86.js',
-  'src/app-symbols.js'
+  'src/app-symbols.js',
+  'src/app-relocs.js'
 ];
 
 let src = '';

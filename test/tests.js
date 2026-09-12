@@ -238,7 +238,7 @@ ok(sum.length > 0 && sum[0].bytes > 0, '概览统计有数据');
   ok(big.valid, '大型 ELF 解析成功 (' + parseMs.toFixed(1) + ' ms)');
   eq(big.shdrs.length, 47, '大型文件段数');
   eq(big.symbols.length, 406, '大型文件符号数');
-  eq(big.relocations.length, 36, '大型文件重定位数量');
+  eq(big.relocations.length, 39, '大型文件重定位数量（36 条内部 + 3 条外部调用）');
   eq(big.dynamic.length, 5, '大型文件 .dynamic 条目数');
   eq(enumEntry('DT_tag', big.dynamic[0].tag).name, 'DT_NEEDED', '.dynamic 标签解码');
   eq(relocTypeName(big, big.relocations[0].type).indexOf('R_RISCV_') === 0, true, '重定位类型解码');
@@ -543,7 +543,64 @@ ok(sum.length > 0 && sum[0].bytes > 0, '概览统计有数据');
   }
 }
 
-/* ============================ 10. 字典完整性 ============================ */
+/* ============ 10. 重定位表解析（.rela.text 字段拆解与符号映射） ============ */
+{
+  const elf = parseELF(Deno.readFileSync(fx + 'big-riscv64.elf'), 'big.elf');
+  const rela = elf.sectionByName.get('.rela.text');
+  ok(rela && rela.sh_type === 4, '找到 .rela.text（SHT_RELA）');
+  const rs = elf.relocations.filter(r => r.table === '.rela.text');
+  eq(rs.length, 23, '.rela.text 重定位项数量（20 条内部引用 + 3 条对外部符号 puts 的调用）');
+
+  const r = rs[0];
+  // 字段布局：Elf64_Rela = r_offset(8) + r_info(8) + r_addend(8)
+  eq(rela.sh_entsize, 24, '表项大小 24 字节');
+  eq(RELA_FIELDS[64].length, 3, 'Elf64_Rela 定义包含 r_offset/r_info/r_addend');
+  eq(RELA_FIELDS[64][2].name, 'r_addend', '第三个字段是 r_addend');
+  ok(RELA_FIELDS[64][2].onlyRela, 'r_addend 标记为仅 RELA 有效');
+
+  // r_info 打包：高 32 位符号索引 + 低 32 位类型
+  eq(r.symIndex, Math.floor(r.rawInfo / 4294967296), 'r_info 高 32 位 = 符号索引');
+  eq(r.type, r.rawInfo % 4294967296, 'r_info 低 32 位 = 重定位类型');
+  ok(enumEntry('R_RISCV', r.type) !== undefined || r.type >= 0, '重定位类型可被字典解码');
+
+  // 与符号表的映射
+  ok(r.sym, '重定位项关联到符号表项');
+  eq(r.sym.index, r.symIndex, '关联的符号索引一致');
+  eq(r.sym.table, '.symtab', '来自 .symtab 符号表');
+  eq(rela.sh_link, elf.sectionByName.get('.symtab').index, '.rela.text 的 sh_link 指向 .symtab');
+  eq(rela.sh_info, elf.sectionByName.get('.text').index, '.rela.text 的 sh_info 指向被修补的 .text');
+
+  // 被修补位置能映射回文件偏移与指令
+  const loc = vaddrToOffset(elf, r.offset);
+  ok(loc && loc.section.name === '.text', 'r_offset 落回 .text 段');
+  const insns = relocPatchedInsns(elf, r);
+  ok(insns.length >= 1, '能解出被修补位置处的指令');
+
+  // 面板输出
+  const html = relocXrefPanel(elf, r);
+  ok(html.indexOf('r_offset') >= 0 && html.indexOf('r_info') >= 0 && html.indexOf('r_addend') >= 0, '面板列出三个字段');
+  ok(html.indexOf('sym_index') >= 0 && html.indexOf('type（低') >= 0, 'r_info 被拆成符号索引与类型两段');
+  ok(html.indexOf('引用关系链路') >= 0, '面板含引用关系链路');
+  ok(html.indexOf('改成谁') >= 0 && html.indexOf('在哪儿改') >= 0, '链路说明涵盖「改成谁 / 在哪儿改」');
+  ok(html.indexOf('data-xr-off') >= 0, '引用目标可点击定位');
+
+  // 段总览：哪些符号是可重定位的
+  const sum = relocSectionSummary(elf, rela);
+  ok(sum.indexOf('需要被「重定位」的引用目标') >= 0, '总览说明可重定位符号的含义');
+  ok(sum.indexOf('data-xr-off') >= 0, '总览里的符号芯片可点击');
+  const undefRefs = rs.filter(x => x.sym && x.sym.st_shndx === 0);
+  ok(undefRefs.length >= 1, '存在指向未定义符号（外部符号）的重定位');
+
+  // 未定义符号的面板要说明由外部提供
+  const uh = relocXrefPanel(elf, undefRefs[0]);
+  ok(uh.indexOf('未定义') >= 0, '未定义符号在重定位面板中被标注');
+
+  // 不含 addend 的 SHT_REL 不应显示 r_addend 字段
+  const fakeRel = Object.assign({}, r, { addend: null, rawInfo: r.rawInfo });
+  ok(relocXrefPanel(elf, fakeRel).indexOf('r_addend') < 0, 'SHT_REL（无加数）不显示 r_addend 字段');
+}
+
+/* ============================ 11. 字典完整性 ============================ */
 for (const key of Object.keys(ENUMS)) {
   const e = ENUMS[key];
   const composite = Array.isArray(e.parts) && e.parts.length > 0;

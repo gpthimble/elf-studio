@@ -200,4 +200,17 @@ function wireXref(root) {
       openDisasmAt(+b.dataset.xrDisasm);
     });
   });
+  $$('[data-xr-sym]', root).forEach(function (b) {
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const sym = S.elf.symbols[+b.dataset.xrSym];
+      if (!sym) return;
+      // 让符号表跳转过去看那个表项（保持在同一视图内联动）
+      switchTab('symbols');
+      S.symFilter.q = sym.name || '';
+      renderSymbols();
+      selectBytes(sym.fileOff, S.elf.is64 ? 24 : 16, { smooth: true });
+      setStatus('已定位到符号表项 ' + (sym.name || '(匿名)') + '：' + hx(sym.fileOff) + '（' + sym.table + '[' + sym.index + ']）');
+    });
+  });
 }

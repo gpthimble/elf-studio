@@ -25,6 +25,7 @@ JS_FILES = [
     'app-core.js',      # 状态、探针、概览面板
     'app-panels.js',    # 各结构面板
     'app-symbols.js',   # 符号表项解析与引用关系面板
+    'app-relocs.js',    # 重定位项解析与引用链路面板
     'app-encoding.js',  # 指令位域对照面板（二进制 ↔ 助记符）
     'app-disasm.js',    # 反汇编视图
 ]
