@@ -455,7 +455,7 @@ function sectionPreview(elf, sec) {
         '<span class="sp-addr">' + hx(r.fileOff) + '</span>' +
         '<span class="sp-name mono">' + esc(relocTypeName(elf, r.type)) + '</span>' +
         '<span class="sp-text muted">r_offset=' + hx(r.offset, elf.is64 ? 10 : 6) + '</span>' +
-        '<span class="sp-note-cell">' + esc(r.symbolName || ('#' + r.symIndex)) +
+        '<span class="sp-note-cell">' + esc(r.symbolName || (r.symIndex === 0 ? '—（无符号）' : '#' + r.symIndex)) +
         (r.addend !== null && r.addend !== undefined ? ' + ' + r.addend : '') + '</span></div>';
     }).join('');
     return '<div class="sp-toolbar"><span class="muted">重定位项预览（前 ' + rs.length + ' 条）</span>' +
@@ -571,7 +571,7 @@ function renderSections() {
             wireXref(slot);
             slot.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
             setStatus('已展开重定位项 ' + r.table + '[' + r.index + ']：' + relocTypeName(S.elf, r.type) +
-              '，引用符号 ' + (r.symbolName || ('#' + r.symIndex)));
+              '，引用符号 ' + (r.symbolName || (r.symIndex === 0 ? '无（修饰项/空符号）' : '#' + r.symIndex)));
           }
           return;
         }
@@ -735,7 +735,7 @@ function renderRelocations() {
       '<td class="mono">' + esc(r.table) + '</td><td class="mono">' + r.index + '</td>' +
       '<td class="mono">' + hx(r.offset, elf.is64 ? 10 : 6) + '</td>' +
       '<td class="mono">' + esc(relocTypeName(elf, r.type)) + '</td>' +
-      '<td class="mono">' + esc(r.symbolName || ('#' + r.symIndex)) + '</td>' +
+      '<td class="mono">' + esc(r.symbolName || (r.symIndex === 0 ? '—（空符号）' : '#' + r.symIndex)) + '</td>' +
       '<td class="mono">' + (r.addend === null ? '—' : (r.addend < 0 ? '-' + hx(-r.addend) : hx(r.addend))) + '</td></tr>';
   }).join('');
   pane.innerHTML = '<div class="card"><div class="card-h"><b>重定位表</b><span class="muted">共 ' + elf.relocations.length + ' 项</span></div>' +

@@ -346,7 +346,7 @@ def make_reloc_object():
     EHDR, SHDR, SYM = 64, 64, 24
     text_off = 0x40
     rela_off = text_off + len(text)
-    sym_off = rela_off + 24                      # 1 条重定位项
+    sym_off = rela_off + 48                      # 2 条重定位项（CALL_PLT + RELAX）
     strtab = bytearray(b'\x00')
 
     def addstr(s):
@@ -372,8 +372,12 @@ def make_reloc_object():
     def put(off, dta):
         buf[off:off + len(dta)] = dta
     put(text_off, text)
-    # .rela.text：r_offset=0x8（段内偏移），符号索引 3 = puts，类型 19 = R_RISCV_CALL_PLT
+    # .rela.text：
+    #   [0] r_offset=0x8，符号索引 3 = puts，类型 19 = R_RISCV_CALL_PLT
+    #   [1] r_offset=0x8，符号索引 0（空符号），类型 51 = R_RISCV_RELAX
+    #       —— 它是「修饰项」，紧随其后地标记上一条重定位可被松弛收缩
     put(rela_off, struct.pack('<QQq', 0x8, (3 << 32) | 19, 0))
+    put(rela_off + 24, struct.pack('<QQq', 0x8, (0 << 32) | 51, 0))
     put(sym_off, b''.join([
         struct.pack('<IBBHQQ', 0, 0, 0, 0, 0, 0),
         struct.pack('<IBBHQQ', 0, 3, 0, 1, 0, 0),                      # STT_SECTION, .text
@@ -390,7 +394,7 @@ def make_reloc_object():
                                           link, info, align, entsize))
     sec(0, '', 0, 0, 0, 0, 0, 0, 0, 0, 0)
     sec(1, '.text', 1, 6, 0, text_off, len(text), 0, 0, 16, 0)          # AX
-    sec(2, '.rela.text', 4, 0, 0, rela_off, 24, 3, 1, 8, 24)            # link=.symtab, info=.text
+    sec(2, '.rela.text', 4, 0, 0, rela_off, 48, 3, 1, 8, 24)            # link=.symtab, info=.text
     sec(3, '.symtab', 2, 0, 0, sym_off, 4 * SYM, 4, 3, 8, SYM)          # link=.strtab, info=首个全局
     sec(4, '.strtab', 3, 0, 0, strtab_off, len(strtab), 0, 0, 1, 0)
     sec(5, '.shstrtab', 3, 0, 0, shstrtab_off, len(shstrtab), 0, 0, 1, 0)
@@ -406,7 +410,7 @@ def make_reloc_object():
     path = os.path.join(OUT, 'reloc-riscv64.o')
     with open(path, 'wb') as f:
         f.write(bytes(buf))
-    print('%s  %d 字节（ET_REL 目标文件，含 1 条 R_RISCV_CALL_PLT 重定位）' % (path, len(buf)))
+    print('%s  %d 字节（ET_REL 目标文件，含 R_RISCV_CALL_PLT + R_RISCV_RELAX 两条重定位）' % (path, len(buf)))
 
 
 def make_x86():

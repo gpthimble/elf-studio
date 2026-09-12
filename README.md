@@ -73,6 +73,12 @@
   **按什么规则改**（类型名 + 原理说明）、**加数含义**（最终写入值 = 符号地址 + addend）。
 - **全部重定位类型可枚举**：面板底部给出该架构下的完整类型表（RISC-V 48 种 / x86-64 15 种），
   当前类型高亮，点击任意类型即可把重定位表**按类型筛选**（页面顶部还有一排类型筛选按钮，带各类型条目数）。
+- **修饰项（`R_RISCV_RELAX` / `R_RISCV_ALIGN`）按从属项呈现**：这类条目的 `r_info` 符号索引恒为 0，
+  本身不写任何字节，按 psABI 约定修饰的是**紧邻其上的那一条重定位**。点开它不会再显示成一次「改成谁」的符号引用，
+  而是给出「它修饰的是 `xxx`（同址）」的说明 + 一条按钮直接跳到被修饰的那条，并高亮**这条重定位覆盖的、可被松弛的指令序列**，
+  说明松弛后会收缩成什么（例如 `auipc + jalr` 8 字节 → 一条 4 字节 `jal`）。
+- **空符号不再被误读**：符号索引 0 是空符号（`STN_UNDEF`），重定位表里统一显示为「—（空符号）」，
+  不会生成 `<idx 0>` 这类看起来像真符号的名字，段总览的「涉及 N 个符号」也不会把它算成一个引用目标，而是单独说明「另有 N 条修饰项 / 无符号项」。
 - 面板里的每个目标（表项字节、被修补位置、符号表项、符号内容、被修补指令）都可点击，左侧 Hex 与探针同步定位。
 
 ### 额外加入的实用能力
@@ -145,7 +151,7 @@ src/
 test/
   make_fixture.py        生成测试夹具（手工构造的 RISC-V ELF + clang 交叉编译的 x86-64 ELF）
   run_tests.js           测试运行器（在 Deno 中执行浏览器脚本）
-  tests.js               449 项断言
+  tests.js               468 项断言
   syntax_check.js        语法检查 + HTML/JS 的 id 引用一致性检查
   run_all.sh             一键跑完全部验证并重新构建
   fixtures/              生成的二进制夹具
@@ -174,13 +180,14 @@ test/
 sh test/run_all.sh
 # 或分别执行
 python3 test/make_fixture.py
-deno run --allow-read test/run_tests.js     # 449 项断言
+deno run --allow-read test/run_tests.js     # 468 项断言
 deno run --allow-read test/syntax_check.js  # 语法 + id 引用检查
 ```
 
 夹具一览：`hello-riscv64.elf` / `hello-riscv32.elf`（44 字节级精细构造的小程序）、
 `big-riscv64.elf`（47 个段、406 个符号、39 条重定位、200 个函数、26 KB 代码，用于性能与滚动压力测试）、
-`x86-64-sample.o`（真实 clang 产物，ET_REL 无程序头）。
+`x86-64-sample.o`（真实 clang 产物，ET_REL 无程序头）、
+`reloc-riscv64.o`（ET_REL 目标文件：一处对外部符号 `puts` 的调用 + 紧随其后的 `R_RISCV_RELAX` 修饰项）。
 
 ---
 

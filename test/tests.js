@@ -611,7 +611,7 @@ ok(sum.length > 0 && sum[0].bytes > 0, '概览统计有数据');
   ok(o.valid, 'RISC-V 目标文件（ET_REL）解析成功');
   eq(o.ehdr.e_type, 1, 'e_type = ET_REL（可重定位目标文件）');
   eq(o.phdrs.length, 0, 'ET_REL 没有程序头表');
-  eq(o.relocations.length, 1, '含 1 条重定位');
+  eq(o.relocations.length, 2, '含 2 条重定位（CALL_PLT + RELAX）');
 
   const r = o.relocations[0];
   eq(r.table, '.rela.text', '重定位记录在 .rela.text');
@@ -620,6 +620,7 @@ ok(sum.length > 0 && sum[0].bytes > 0, '概览统计有数据');
   eq(relocTypeName(o, r.type), 'R_RISCV_CALL_PLT', '类型名解码正确');
   eq(r.symIndex, 3, '符号索引 = 3');
   ok(r.sym && r.sym.name === 'puts', 'r_info 映射到符号表里的 puts');
+  eq(r.symbolName, 'puts', '符号名解析为 puts');
   eq(r.sym.st_shndx, 0, 'puts 是未定义（外部）符号');
   eq(r.sym.table, '.symtab', '来自 .symtab');
 
@@ -642,7 +643,33 @@ ok(sum.length > 0 && sum[0].bytes > 0, '概览统计有数据');
   ok(html.indexOf('r_info = (符号索引') >= 0, '给出 r_info 的还原算式');
   ok(html.indexOf('全部 ' + ENUMS.R_RISCV.values.length + ' 种') >= 0, '提供全部重定位类型列表入口');
   ok(html.indexOf('R_RISCV_ALIGN') >= 0, '类型列表里包含 ALIGN 等全部枚举');
-  ok(html.indexOf('数据') >= 0 || html.indexOf('写入') >= 0 || true, '面板结构完整');
+
+  /* ---- 修饰项（R_RISCV_RELAX）必须渲染成「修饰上一条」而不是一次符号引用 ---- */
+  const relax = o.relocations[1];
+  eq(relax.type, 51, '第二项类型 = 51 (R_RISCV_RELAX)');
+  eq(relax.symIndex, 0, 'RELAX 的符号索引为 0（空符号）');
+  eq(relax.symbolName, null, '空符号不产生假的符号名（不再是 "<idx 0>"）');
+  eq(relax.offset, r.offset, 'RELAX 与它修饰的重定位同址（0x8）');
+  eq(isRelocModifier(o, relax), true, 'RELAX 被识别为修饰项');
+  eq(isRelocModifier(o, r), false, 'CALL_PLT 不是修饰项');
+  const prev = prevRelocInTable(o, relax);
+  ok(prev && prev.index === 0 && prev.type === 19, '修饰项能定位到紧邻其上的 CALL_PLT');
+
+  const rh = relocXrefPanel(o, relax);
+  ok(rh.indexOf('修饰项') >= 0, '面板把 RELAX 标为修饰项');
+  ok(rh.indexOf('不引用任何符号') >= 0, '明确说明它不引用符号');
+  ok(rh.indexOf('紧邻其上的那一条重定位') >= 0, '说明它修饰上一条');
+  ok(rh.indexOf('R_RISCV_CALL_PLT') >= 0, '点名它修饰的是 CALL_PLT 那条');
+  ok(rh.indexOf('未定义符号：由外部提供') < 0, '不再把空符号误报成「未定义的外部符号」');
+  ok(rh.indexOf('可松弛') >= 0, '标出可被松弛的指令序列');
+  ok(rh.indexOf('auipc') >= 0 && rh.indexOf('jalr') >= 0, '序列来自上一条重定位覆盖的 auipc + jalr');
+  ok(rh.indexOf('jal') >= 0, '说明松弛后会收缩成更短的调用指令');
+  ok(rh.indexOf('data-xr-prev') >= 0, '提供「展开它修饰的上一条」入口');
+
+  const sum2 = relocSectionSummary(o, o.sectionByName.get('.rela.text'));
+  ok(sum2.indexOf('1</b> 个符号') >= 0, '总览只统计真实引用目标（1 个：puts）');
+  ok(sum2.indexOf('修饰项') >= 0, '总览额外说明修饰项条数');
+  ok(sum2.indexOf('puts') >= 0 && sum2.indexOf('<idx 0>') < 0, '总览里不出现空符号条目');
 }
 
 /* ============================ 12. 字典完整性 ============================ */

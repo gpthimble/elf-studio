@@ -84,6 +84,23 @@ function relocPatchInfo(elf, r) {
 }
 
 /**
+ * 同一个重定位表里紧邻在当前项之前的那一条（重定位表是有序的）。
+ * R_RISCV_RELAX / R_RISCV_ALIGN 这类「修饰项」按 ABI 约定修饰的就是紧邻其上的那条。
+ */
+function prevRelocInTable(elf, r) {
+  const list = elf.relocations.filter(function (x) { return x.table === r.table; });
+  const pos = list.findIndex(function (x) { return x.index === r.index; });
+  return pos > 0 ? list[pos - 1] : null;
+}
+
+/** 该类型是不是「修饰项」（本身不写数据、不引用符号，只修饰上一条重定位） */
+function isRelocModifier(elf, r) {
+  const info = relocPatchInfo(elf, r).info;
+  if (!info) return false;
+  return info.n === 0 && !info.data;
+}
+
+/**
  * 被修补位置：返回段内偏移、文件偏移、以及被修改的那几条指令 / 那几个字节
  * 区分「被修补的指令」与「后续上下文指令」，并给出被修改的位域。
  */
@@ -137,6 +154,9 @@ function relocXrefPanel(elf, r) {
   const patchInfo = tgt.patch.info;
   const typeName = relocTypeName(elf, r.type);
   const typeEntry = enumEntry(elf.arch === 'riscv' ? 'R_RISCV' : 'R_X86_64', r.type);
+  const modifier = isRelocModifier(elf, r);            // RELAX / ALIGN：修饰上一条的标记项
+  const prevR = modifier ? prevRelocInTable(elf, r) : null;
+  const nullSym = r.symIndex === 0;                    // 索引 0 = 空符号（STN_UNDEF）
 
   // ---- 表项字节，按字段着色 ----
   const byteCells = groups.map(function (g) {
@@ -168,6 +188,56 @@ function relocXrefPanel(elf, r) {
       '<td class="mono">' + esc(hx(g.value)) + '</td>' +
       '<td class="xs-mean">' + esc(g.desc) + '</td></tr>';
   }).join('');
+
+  // ---- 修饰项（RELAX / ALIGN）：说明它修饰的是哪一条，而不是自己「改成谁」 ----
+  if (modifier) {
+    const prevName = prevR ? relocTypeName(elf, prevR.type) : null;
+    const prevTarget = prevR ? relocPatchTarget(elf, prevR) : null;
+    const seq = (prevTarget && prevTarget.insns.length)
+      ? prevTarget.insns.slice(0, Math.max(1, prevTarget.patched || 1)).map(function (ins) {
+        return '<div class="rl-insn relaxable" data-xr-off="' + ins.fileOffset + '" data-xr-size="' + ins.size + '">' +
+          '<span class="rl-tag">可松弛</span>' +
+          '<span class="sp-addr">' + hx(ins.addr) + '</span>' +
+          '<span class="sp-bytes">' + Array.prototype.slice.call(ins.bytes).map(byteHex).join(' ') + '</span>' +
+          '<span class="sp-text">' + esc(ins.text) + '</span></div>';
+      }).join('')
+      : '';
+    return '<div class="xs rl" data-table="' + esc(r.table) + '">' +
+      '<div class="xs-head"><b class="mono">' + esc(r.table) + '[' + r.index + ']</b>' +
+      '<span class="pill">' + esc(typeName) + '</span>' +
+      '<span class="pill" style="border-color:#6b5a1e;color:#ffd43b">修饰项 · 不写数据</span>' +
+      '<span class="muted">表项 @' + hx(r.fileOff) + '，' + entsz + ' 字节</span>' +
+      '<span class="xs-actions">' +
+      '<button class="mini" data-xr-off="' + r.fileOff + '" data-xr-size="' + entsz + '">表项字节</button>' +
+      (prevR ? '<button class="mini" data-xr-prev="' + prevR.index + '">展开它修饰的上一条 →</button>' : '') +
+      '</span></div>' +
+      '<div class="xs-bytes">' + byteCells + '</div>' +
+      '<div class="rl-mod-banner">' +
+      '<b>这一项不是独立的符号引用，而是「修饰项」。</b><br>' +
+      '它的 <span class="mono">r_info</span> 里符号索引为 <b class="mono">0</b>（空符号 STN_UNDEF），加数为 0 —— 也就是说它<b>不引用任何符号</b>；' +
+      '按 RISC-V psABI 的约定，这类条目<b>修饰的是紧邻其上的那一条重定位</b>' +
+      (prevR ? '（就是 <b>' + esc(prevR.table + '[' + prevR.index + '] ' + prevName) + '</b>，两者的 r_offset 相同：' +
+        hx(prevR.offset) + '）。' : '。') +
+      '</div>' +
+      '<div class="rl-info-title">修饰含义</div>' +
+      '<div class="rl-patch-note">' + esc(patchInfo.note) + '</div>' +
+      (seq ? '<div class="xs-sub">它修饰的指令序列（来自上一条重定位，' +
+        esc(prevName) + ' 覆盖的字节）</div>' +
+        '<div class="rl-insns">' + seq + '</div>' +
+        '<div class="rl-mod-example">松弛后：链接器若判定目标在可达范围内，就把这段序列收缩成更短的等价指令' +
+        '（例如 ' + (prevName === 'R_RISCV_CALL_PLT' || prevName === 'R_RISCV_CALL'
+          ? '把 <b class="mono">auipc + jalr</b> 两条 8 字节的调用序列替换成一条 4 字节的 <b class="mono">jal</b>'
+          : '把 auipc + addi/lw 序列缩减成 lui/addi/单条指令') +
+        '），并相应调整后续地址。</div>' : '') +
+      '<div class="xs-sub">字段解析</div>' +
+      '<table class="grid compact xs-table"><thead><tr><th>字段</th><th>原始值</th><th>含义</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table>' +
+      '<div class="rl-info-math">' + esc(typeName) + ' 的 r_info 还原：<b class="mono">r_info = (符号索引 &lt;&lt; ' + typeBits +
+      ') | 类型 → (0 &lt;&lt; ' + typeBits + ') | ' + r.type + ' = ' + esc(hx(r.rawInfo)) + '</b>' +
+      '　符号索引恒为 0，这正是「它不是符号引用、而是标记」的格式证据。</div>' +
+      relocTypeCatalog(elf, r.type) +
+      '</div>';
+  }
 
   // ---- 被修补的位置：指令级高亮 + 被修改的位 ----
   let patchHtml = '';
@@ -229,12 +299,15 @@ function relocXrefPanel(elf, r) {
   const chain = [];
   chain.push({
     label: '改成谁', arrow: '→',
-    body: sym
+    body: nullSym
+      ? '<span class="xr-chip dim">符号索引 0 = 空符号（STN_UNDEF）——本条不引用任何符号</span>' +
+        '<span class="muted">' + (modifier ? '它只是标记项' : '例如 R_RISCV_RELATIVE 这类只依赖加载基址的重定位') + '</span>'
+      : (sym
       ? chip('符号表项 ' + sym.table + '[' + sym.index + '] @' + hx(sym.fileOff), sym.fileOff, elf.is64 ? 24 : 16, 'shdr') +
         chip('“' + (sym.name || '(匿名)') + '”' + (sym.fileOffset !== undefined ? ' @' + hx(sym.fileOffset) : ''),
           sym.fileOffset, Math.max(1, Math.min(sym.st_size || 1, 4096)), 'content') +
         '<span class="muted">' + (sym.st_shndx === 0 ? '（未定义符号：由外部提供）' : '（定义于 ' + esc(sym.sec) + '）') + '</span>'
-      : '<span class="xr-chip dim">符号索引 ' + r.symIndex + ' 在符号表中找不到对应项</span>'
+      : '<span class="xr-chip dim">符号索引 ' + r.symIndex + ' 在符号表中找不到对应项</span>')
   });
   chain.push({
     label: '按什么规则改', arrow: '→',
@@ -254,7 +327,7 @@ function relocXrefPanel(elf, r) {
       '<span class="xr-arrow">' + c.arrow + '</span><span class="rl-body">' + c.body + '</span></div>';
   }).join('');
 
-  return '<div class="xs rl">' +
+  return '<div class="xs rl" data-table="' + esc(r.table) + '">' +
     '<div class="xs-head"><b class="mono">' + esc(r.table) + '[' + r.index + ']</b>' +
     '<span class="pill">' + esc(typeName) + '</span>' +
     '<span class="muted">表项 @' + hx(r.fileOff) + '，' + entsz + ' 字节</span>' +
@@ -308,9 +381,13 @@ function relocSectionSummary(elf, sec) {
   const rs = elf.relocations.filter(function (r) { return r.table === sec.name; });
   if (!rs.length) return '';
   const bySym = new Map();
+  let markers = 0;
   for (const r of rs) {
+    // 修饰项（RELAX/ALIGN）与空符号不参与「引用目标」统计
+    if (isRelocModifier(elf, r)) { markers++; continue; }
+    if (r.symIndex === 0) { markers++; continue; }
     const key = r.symIndex;
-    if (!bySym.has(key)) bySym.set(key, { idx: key, name: r.symbolName, sym: r.sym, count: 0, types: new Set() });
+    if (!bySym.has(key)) bySym.set(key, { idx: key, name: r.symbolName || (r.sym ? '(匿名符号)' : null), sym: r.sym, count: 0, types: new Set() });
     const e = bySym.get(key);
     e.count++;
     e.types.add(relocTypeName(elf, r.type));
@@ -322,7 +399,8 @@ function relocSectionSummary(elf, sec) {
     return chip('#' + e.idx + ' ' + (e.name || '(匿名)') + ' ×' + e.count + ' · ' + kind, off, elf.is64 ? 24 : 16, sym && sym.st_shndx === 0 ? 'rela' : 'shdr');
   }).join('');
   return '<div class="rl-summary">' +
-    '<div class="rl-sum-title">这段重定位涉及 <b>' + bySym.size + '</b> 个符号（它们就是需要被「重定位」的引用目标）：</div>' +
+    '<div class="rl-sum-title">这段重定位涉及 <b>' + bySym.size + '</b> 个符号（它们就是需要被「重定位」的引用目标）' +
+    (markers ? '，另有 <b>' + markers + '</b> 条是<b>修饰项 / 无符号项</b>（如 R_RISCV_RELAX，不引用符号、本身不写数据）' : '') + '：</div>' +
     '<div class="rl-chips">' + chips + '</div>' +
     '<div class="muted small">点芯片 → 跳到该符号在符号表中的表项；点下面任意一条重定位项 → 展开它的字段拆解与引用链路。</div>' +
     '</div>';
@@ -347,6 +425,22 @@ function toggleRelocXref(tr, r) {
 
 /** 面板内的额外交互：展开类型总表、按类型筛选 */
 function wireRelocExtras(root) {
+  // 修饰项面板里「展开它修饰的上一条」：切到那一条重定位的详情
+  $$('[data-xr-prev]', root).forEach(function (b) {
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const idx = +b.dataset.xrPrev;
+      const prev = S.elf.relocations.find(function (x) { return x.table === b.closest('.rl').dataset.table && x.index === idx; })
+        || S.elf.relocations.find(function (x) { return x.index === idx; });
+      if (!prev) return;
+      // 优先在重定位页里点到对应行；找不到就直接把面板内容替换成上一条
+      switchTab('relocs');
+      const tr = $('.rel-row[data-off="' + prev.fileOff + '"]');
+      if (tr) { tr.click(); }
+      else { root.innerHTML = relocXrefPanel(S.elf, prev); wireXref(root); wireRelocExtras(root); }
+      setStatus('已跳到它修饰的上一条重定位：' + prev.table + '[' + prev.index + '] ' + relocTypeName(S.elf, prev.type));
+    });
+  });
   const t = $('.rl-cat-toggle', root);
   const cat = $('.rl-cat', root);
   if (t && cat) {

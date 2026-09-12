@@ -289,7 +289,9 @@ function parseELF(bytes, fileName) {
     const src = shdrs.find(x => x.name === r.table);
     const list = src ? symByTable.get(src.sh_link) : null;
     const sym = list ? list[r.symIndex] : null;
-    r.symbolName = sym ? (sym.name || ('<idx ' + r.symIndex + '>')) : null;
+    // 符号名为空（含索引 0 的空符号）时保持 null，由界面决定如何呈现；
+    // 早期实现在这里生成 "<idx N>" 字符串，会让「空符号」被误读成一个真实符号。
+    r.symbolName = (sym && sym.name) ? sym.name : null;
     r.sym = sym || null;
   }
 
