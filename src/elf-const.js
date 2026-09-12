@@ -457,8 +457,8 @@ const EHDR_FIELDS = {
     { name: 'e_ident[EI_ABIVERSION]', off: 8, size: 1, desc: 'ABI 版本号。' },
     { name: 'e_ident[EI_PAD]', off: 9, size: 7, desc: '填充，保留字节。' },
     { name: 'e_type', off: 16, size: 2, enum: 'e_type', desc: '目标文件类型。' },
-    { name: 'e_machine', off: 18, size: 2, enum: 'e_machine', desc: '目标架构。' },
-    { name: 'e_version', off: 20, size: 4, enum: 'e_version', desc: '文件版本。' },
+    { name: 'e_machine', off: 18, size: 2, enum: 'e_machine', desc: '目标架构：本文件面向的 CPU 与指令集。解析器与反汇编器靠它选择指令解码表，RISC-V 的编号是 243。' },
+    { name: 'e_version', off: 20, size: 4, enum: 'e_version', desc: '文件版本：标识目标文件遵循的 ELF 版本，现代工具链产出的文件恒为 EV_CURRENT(1)。' },
     { name: 'e_entry', off: 24, size: 8, desc: '入口虚拟地址。64 位 ELF 中该字段被放到 8 字节对齐位置（紧随 e_version 之后）。' },
     { name: 'e_phoff', off: 32, size: 8, desc: '程序头表文件偏移。' },
     { name: 'e_shoff', off: 40, size: 8, desc: '段头表文件偏移。' },
@@ -467,7 +467,7 @@ const EHDR_FIELDS = {
     { name: 'e_phentsize', off: 54, size: 2, desc: '单个程序头大小，64 位文件为 56 字节。' },
     { name: 'e_phnum', off: 56, size: 2, desc: '程序头数量。' },
     { name: 'e_shentsize', off: 58, size: 2, desc: '单个段头大小，64 位文件为 64 字节。' },
-    { name: 'e_shnum', off: 60, size: 2, desc: '段头数量。' },
+    { name: 'e_shnum', off: 60, size: 2, desc: '段头表中的条目数量；若该值为 0 而 e_shoff 非 0，真实数量存放在段 0 的 sh_size 中。' },
     { name: 'e_shstrndx', off: 62, size: 2, desc: '段名表索引。' }
   ]
 };
@@ -475,7 +475,7 @@ const EHDR_FIELDS = {
 /* 程序头字段布局 */
 const PHDR_FIELDS = {
   32: [
-    { name: 'p_type', off: 0, size: 4, enum: 'p_type', desc: '段类型。' },
+    { name: 'p_type', off: 0, size: 4, enum: 'p_type', desc: '程序段类型：决定这段在运行期扮演什么角色——是否被加载、是否是动态链接信息、是否只是附注。' },
     { name: 'p_offset', off: 4, size: 4, desc: '段内容在文件中的偏移。' },
     { name: 'p_vaddr', off: 8, size: 4, desc: '段的虚拟地址。' },
     { name: 'p_paddr', off: 12, size: 4, desc: '段的物理地址（通常等于虚拟地址，仅在无 MMU 的裸机环境有意义）。' },
@@ -485,14 +485,14 @@ const PHDR_FIELDS = {
     { name: 'p_align', off: 28, size: 4, desc: '对齐要求。p_vaddr 与 p_offset 必须模 p_align 同余（页对齐时即为 0x1000 的倍数）。' }
   ],
   64: [
-    { name: 'p_type', off: 0, size: 4, enum: 'p_type', desc: '段类型。' },
+    { name: 'p_type', off: 0, size: 4, enum: 'p_type', desc: '程序段类型：决定这段在运行期扮演什么角色——是否被加载、是否是动态链接信息、是否只是附注。' },
     { name: 'p_flags', off: 4, size: 4, enum: 'p_flags', desc: '内存权限（注意：64 位程序头里 flags 紧跟 type，与 32 位不同）。' },
     { name: 'p_offset', off: 8, size: 8, desc: '段内容文件偏移。' },
     { name: 'p_vaddr', off: 16, size: 8, desc: '段虚拟地址。' },
     { name: 'p_paddr', off: 24, size: 8, desc: '段物理地址。' },
     { name: 'p_filesz', off: 32, size: 8, desc: '文件中的字节数。' },
     { name: 'p_memsz', off: 40, size: 8, desc: '内存中的字节数。' },
-    { name: 'p_align', off: 48, size: 8, desc: '对齐约束。' }
+    { name: 'p_align', off: 48, size: 8, desc: '对齐约束：p_vaddr 与 p_offset 必须模 p_align 同余，加载器据此把段按页对齐地映射进内存。' }
   ]
 };
 
@@ -500,7 +500,7 @@ const PHDR_FIELDS = {
 const SHDR_FIELDS = {
   32: [
     { name: 'sh_name', off: 0, size: 4, desc: '段名在 .shstrtab 中的字节偏移。解析段名时需要「段名表段」的 sh_offset + 此偏移。' },
-    { name: 'sh_type', off: 4, size: 4, enum: 'sh_type', desc: '段类型。' },
+    { name: 'sh_type', off: 4, size: 4, enum: 'sh_type', desc: '段类型：决定段内容的解释方式，以及链接器要不要处理它（普通数据 / 符号表 / 重定位表…）。' },
     { name: 'sh_flags', off: 8, size: 4, enum: 'sh_flags', desc: '段属性位掩码。' },
     { name: 'sh_addr', off: 12, size: 4, desc: '若段被加载，这是其内存首地址；否则为 0。' },
     { name: 'sh_offset', off: 16, size: 4, desc: '段内容在文件中的偏移。SHT_NOBITS 时该值无实际数据意义。' },
@@ -512,15 +512,15 @@ const SHDR_FIELDS = {
   ],
   64: [
     { name: 'sh_name', off: 0, size: 4, desc: '段名在 .shstrtab 中的偏移。' },
-    { name: 'sh_type', off: 4, size: 4, enum: 'sh_type', desc: '段类型。' },
+    { name: 'sh_type', off: 4, size: 4, enum: 'sh_type', desc: '段类型：决定段内容的解释方式，以及链接器要不要处理它（普通数据 / 符号表 / 重定位表…）。' },
     { name: 'sh_flags', off: 8, size: 8, enum: 'sh_flags', desc: '段属性（64 位宽）。' },
     { name: 'sh_addr', off: 16, size: 8, desc: '段内存地址。' },
     { name: 'sh_offset', off: 24, size: 8, desc: '段内容文件偏移。' },
-    { name: 'sh_size', off: 32, size: 8, desc: '段大小。' },
+    { name: 'sh_size', off: 32, size: 8, desc: '段的字节数；若类型是 SHT_NOBITS（如 .bss），它表示运行时占用的内存长度，文件中并没有对应字节。' },
     { name: 'sh_link', off: 40, size: 4, desc: '链接到的段索引。' },
-    { name: 'sh_info', off: 44, size: 4, desc: '附加信息。' },
-    { name: 'sh_addralign', off: 48, size: 8, desc: '对齐要求。' },
-    { name: 'sh_entsize', off: 56, size: 8, desc: '表项大小。' }
+    { name: 'sh_info', off: 44, size: 4, desc: '附加信息：含义随段类型变化——在符号表里表示第一个全局符号的下标，在重定位表里表示被修补的段。' },
+    { name: 'sh_addralign', off: 48, size: 8, desc: '地址对齐要求，必须是 2 的幂；取 0 或 1 表示该段没有对齐约束。' },
+    { name: 'sh_entsize', off: 56, size: 8, desc: '若该段是「定长表项组成的数组」（符号表、重定位表等），这里是单个表项的字节数；否则为 0。' }
   ]
 };
 
@@ -531,16 +531,16 @@ const SYM_FIELDS = {
     { name: 'st_value', off: 4, size: 4, desc: '符号值：函数/变量地址或偏移。' },
     { name: 'st_size', off: 8, size: 4, desc: '符号大小。函数符号给出函数体字节数，是反汇编切分函数边界的最佳依据。' },
     { name: 'st_info', off: 12, size: 1, enum: 'st_info', desc: '绑定+类型打包字段。' },
-    { name: 'st_other', off: 13, size: 1, enum: 'st_other', desc: '可见性。' },
+    { name: 'st_other', off: 13, size: 1, enum: 'st_other', desc: '符号可见性：低 2 位决定其它模块能否在动态链接时解析到这个符号。' },
     { name: 'st_shndx', off: 14, size: 2, enum: 'st_shndx', desc: '所属段索引。' }
   ],
   64: [
     { name: 'st_name', off: 0, size: 4, desc: '符号名偏移。' },
     { name: 'st_info', off: 4, size: 1, enum: 'st_info', desc: '绑定+类型。' },
-    { name: 'st_other', off: 5, size: 1, enum: 'st_other', desc: '可见性。' },
-    { name: 'st_shndx', off: 6, size: 2, enum: 'st_shndx', desc: '段索引。' },
-    { name: 'st_value', off: 8, size: 8, desc: '符号值。' },
-    { name: 'st_size', off: 16, size: 8, desc: '符号大小。' }
+    { name: 'st_other', off: 5, size: 1, enum: 'st_other', desc: '符号可见性：低 2 位决定其它模块能否在动态链接时解析到这个符号。' },
+    { name: 'st_shndx', off: 6, size: 2, enum: 'st_shndx', desc: '符号所属段在段表中的下标；若干保留值另有含义（未定义 SHN_UNDEF、绝对值 SHN_ABS 等）。' },
+    { name: 'st_value', off: 8, size: 8, desc: '符号值：函数或变量的地址。可重定位目标文件里是段内偏移，可执行文件/共享库里是虚拟地址。' },
+    { name: 'st_size', off: 16, size: 8, desc: '符号大小：函数体或数据对象的字节数，是切分函数边界、判断符号占据哪些字节的依据。' }
   ]
 };
 
@@ -606,7 +606,7 @@ const SECTION_PURPOSE = {
   '.gnu.hash': 'GNU 扩展哈希表，用布隆过滤器加速动态符号查找。',
   '.hash': 'System V 哈希表，旧式动态符号查找结构。',
   '.sdata': '小数据段，可通过 gp 寄存器用单条指令访问，优化紧凑代码体积。',
-  '.sbss': '小 BSS 段。',
+  '.sbss': '小 BSS 段：与 .sdata 配套的零初始化小数据。放在一起是为了让它们都落在 gp 寄存器 ±2KB 范围内，从而用一条指令完成访问。',
   '.note.GNU-stack': '标记栈不可执行（安全加固）。'
 };
 

@@ -1421,8 +1421,8 @@ const EHDR_FIELDS = {
     { name: 'e_ident[EI_ABIVERSION]', off: 8, size: 1, desc: 'ABI 版本号。' },
     { name: 'e_ident[EI_PAD]', off: 9, size: 7, desc: '填充，保留字节。' },
     { name: 'e_type', off: 16, size: 2, enum: 'e_type', desc: '目标文件类型。' },
-    { name: 'e_machine', off: 18, size: 2, enum: 'e_machine', desc: '目标架构。' },
-    { name: 'e_version', off: 20, size: 4, enum: 'e_version', desc: '文件版本。' },
+    { name: 'e_machine', off: 18, size: 2, enum: 'e_machine', desc: '目标架构：本文件面向的 CPU 与指令集。解析器与反汇编器靠它选择指令解码表，RISC-V 的编号是 243。' },
+    { name: 'e_version', off: 20, size: 4, enum: 'e_version', desc: '文件版本：标识目标文件遵循的 ELF 版本，现代工具链产出的文件恒为 EV_CURRENT(1)。' },
     { name: 'e_entry', off: 24, size: 8, desc: '入口虚拟地址。64 位 ELF 中该字段被放到 8 字节对齐位置（紧随 e_version 之后）。' },
     { name: 'e_phoff', off: 32, size: 8, desc: '程序头表文件偏移。' },
     { name: 'e_shoff', off: 40, size: 8, desc: '段头表文件偏移。' },
@@ -1431,7 +1431,7 @@ const EHDR_FIELDS = {
     { name: 'e_phentsize', off: 54, size: 2, desc: '单个程序头大小，64 位文件为 56 字节。' },
     { name: 'e_phnum', off: 56, size: 2, desc: '程序头数量。' },
     { name: 'e_shentsize', off: 58, size: 2, desc: '单个段头大小，64 位文件为 64 字节。' },
-    { name: 'e_shnum', off: 60, size: 2, desc: '段头数量。' },
+    { name: 'e_shnum', off: 60, size: 2, desc: '段头表中的条目数量；若该值为 0 而 e_shoff 非 0，真实数量存放在段 0 的 sh_size 中。' },
     { name: 'e_shstrndx', off: 62, size: 2, desc: '段名表索引。' }
   ]
 };
@@ -1439,7 +1439,7 @@ const EHDR_FIELDS = {
 /* 程序头字段布局 */
 const PHDR_FIELDS = {
   32: [
-    { name: 'p_type', off: 0, size: 4, enum: 'p_type', desc: '段类型。' },
+    { name: 'p_type', off: 0, size: 4, enum: 'p_type', desc: '程序段类型：决定这段在运行期扮演什么角色——是否被加载、是否是动态链接信息、是否只是附注。' },
     { name: 'p_offset', off: 4, size: 4, desc: '段内容在文件中的偏移。' },
     { name: 'p_vaddr', off: 8, size: 4, desc: '段的虚拟地址。' },
     { name: 'p_paddr', off: 12, size: 4, desc: '段的物理地址（通常等于虚拟地址，仅在无 MMU 的裸机环境有意义）。' },
@@ -1449,14 +1449,14 @@ const PHDR_FIELDS = {
     { name: 'p_align', off: 28, size: 4, desc: '对齐要求。p_vaddr 与 p_offset 必须模 p_align 同余（页对齐时即为 0x1000 的倍数）。' }
   ],
   64: [
-    { name: 'p_type', off: 0, size: 4, enum: 'p_type', desc: '段类型。' },
+    { name: 'p_type', off: 0, size: 4, enum: 'p_type', desc: '程序段类型：决定这段在运行期扮演什么角色——是否被加载、是否是动态链接信息、是否只是附注。' },
     { name: 'p_flags', off: 4, size: 4, enum: 'p_flags', desc: '内存权限（注意：64 位程序头里 flags 紧跟 type，与 32 位不同）。' },
     { name: 'p_offset', off: 8, size: 8, desc: '段内容文件偏移。' },
     { name: 'p_vaddr', off: 16, size: 8, desc: '段虚拟地址。' },
     { name: 'p_paddr', off: 24, size: 8, desc: '段物理地址。' },
     { name: 'p_filesz', off: 32, size: 8, desc: '文件中的字节数。' },
     { name: 'p_memsz', off: 40, size: 8, desc: '内存中的字节数。' },
-    { name: 'p_align', off: 48, size: 8, desc: '对齐约束。' }
+    { name: 'p_align', off: 48, size: 8, desc: '对齐约束：p_vaddr 与 p_offset 必须模 p_align 同余，加载器据此把段按页对齐地映射进内存。' }
   ]
 };
 
@@ -1464,7 +1464,7 @@ const PHDR_FIELDS = {
 const SHDR_FIELDS = {
   32: [
     { name: 'sh_name', off: 0, size: 4, desc: '段名在 .shstrtab 中的字节偏移。解析段名时需要「段名表段」的 sh_offset + 此偏移。' },
-    { name: 'sh_type', off: 4, size: 4, enum: 'sh_type', desc: '段类型。' },
+    { name: 'sh_type', off: 4, size: 4, enum: 'sh_type', desc: '段类型：决定段内容的解释方式，以及链接器要不要处理它（普通数据 / 符号表 / 重定位表…）。' },
     { name: 'sh_flags', off: 8, size: 4, enum: 'sh_flags', desc: '段属性位掩码。' },
     { name: 'sh_addr', off: 12, size: 4, desc: '若段被加载，这是其内存首地址；否则为 0。' },
     { name: 'sh_offset', off: 16, size: 4, desc: '段内容在文件中的偏移。SHT_NOBITS 时该值无实际数据意义。' },
@@ -1476,15 +1476,15 @@ const SHDR_FIELDS = {
   ],
   64: [
     { name: 'sh_name', off: 0, size: 4, desc: '段名在 .shstrtab 中的偏移。' },
-    { name: 'sh_type', off: 4, size: 4, enum: 'sh_type', desc: '段类型。' },
+    { name: 'sh_type', off: 4, size: 4, enum: 'sh_type', desc: '段类型：决定段内容的解释方式，以及链接器要不要处理它（普通数据 / 符号表 / 重定位表…）。' },
     { name: 'sh_flags', off: 8, size: 8, enum: 'sh_flags', desc: '段属性（64 位宽）。' },
     { name: 'sh_addr', off: 16, size: 8, desc: '段内存地址。' },
     { name: 'sh_offset', off: 24, size: 8, desc: '段内容文件偏移。' },
-    { name: 'sh_size', off: 32, size: 8, desc: '段大小。' },
+    { name: 'sh_size', off: 32, size: 8, desc: '段的字节数；若类型是 SHT_NOBITS（如 .bss），它表示运行时占用的内存长度，文件中并没有对应字节。' },
     { name: 'sh_link', off: 40, size: 4, desc: '链接到的段索引。' },
-    { name: 'sh_info', off: 44, size: 4, desc: '附加信息。' },
-    { name: 'sh_addralign', off: 48, size: 8, desc: '对齐要求。' },
-    { name: 'sh_entsize', off: 56, size: 8, desc: '表项大小。' }
+    { name: 'sh_info', off: 44, size: 4, desc: '附加信息：含义随段类型变化——在符号表里表示第一个全局符号的下标，在重定位表里表示被修补的段。' },
+    { name: 'sh_addralign', off: 48, size: 8, desc: '地址对齐要求，必须是 2 的幂；取 0 或 1 表示该段没有对齐约束。' },
+    { name: 'sh_entsize', off: 56, size: 8, desc: '若该段是「定长表项组成的数组」（符号表、重定位表等），这里是单个表项的字节数；否则为 0。' }
   ]
 };
 
@@ -1495,16 +1495,16 @@ const SYM_FIELDS = {
     { name: 'st_value', off: 4, size: 4, desc: '符号值：函数/变量地址或偏移。' },
     { name: 'st_size', off: 8, size: 4, desc: '符号大小。函数符号给出函数体字节数，是反汇编切分函数边界的最佳依据。' },
     { name: 'st_info', off: 12, size: 1, enum: 'st_info', desc: '绑定+类型打包字段。' },
-    { name: 'st_other', off: 13, size: 1, enum: 'st_other', desc: '可见性。' },
+    { name: 'st_other', off: 13, size: 1, enum: 'st_other', desc: '符号可见性：低 2 位决定其它模块能否在动态链接时解析到这个符号。' },
     { name: 'st_shndx', off: 14, size: 2, enum: 'st_shndx', desc: '所属段索引。' }
   ],
   64: [
     { name: 'st_name', off: 0, size: 4, desc: '符号名偏移。' },
     { name: 'st_info', off: 4, size: 1, enum: 'st_info', desc: '绑定+类型。' },
-    { name: 'st_other', off: 5, size: 1, enum: 'st_other', desc: '可见性。' },
-    { name: 'st_shndx', off: 6, size: 2, enum: 'st_shndx', desc: '段索引。' },
-    { name: 'st_value', off: 8, size: 8, desc: '符号值。' },
-    { name: 'st_size', off: 16, size: 8, desc: '符号大小。' }
+    { name: 'st_other', off: 5, size: 1, enum: 'st_other', desc: '符号可见性：低 2 位决定其它模块能否在动态链接时解析到这个符号。' },
+    { name: 'st_shndx', off: 6, size: 2, enum: 'st_shndx', desc: '符号所属段在段表中的下标；若干保留值另有含义（未定义 SHN_UNDEF、绝对值 SHN_ABS 等）。' },
+    { name: 'st_value', off: 8, size: 8, desc: '符号值：函数或变量的地址。可重定位目标文件里是段内偏移，可执行文件/共享库里是虚拟地址。' },
+    { name: 'st_size', off: 16, size: 8, desc: '符号大小：函数体或数据对象的字节数，是切分函数边界、判断符号占据哪些字节的依据。' }
   ]
 };
 
@@ -1570,7 +1570,7 @@ const SECTION_PURPOSE = {
   '.gnu.hash': 'GNU 扩展哈希表，用布隆过滤器加速动态符号查找。',
   '.hash': 'System V 哈希表，旧式动态符号查找结构。',
   '.sdata': '小数据段，可通过 gp 寄存器用单条指令访问，优化紧凑代码体积。',
-  '.sbss': '小 BSS 段。',
+  '.sbss': '小 BSS 段：与 .sdata 配套的零初始化小数据。放在一起是为了让它们都落在 gp 寄存器 ±2KB 范围内，从而用一条指令完成访问。',
   '.note.GNU-stack': '标记栈不可执行（安全加固）。'
 };
 
@@ -6057,35 +6057,133 @@ function relocFieldGroups(elf, r) {
  * 各类重定位「到底改哪条指令的哪些位」——这是 RISC-V 重定位的核心知识点：
  * 定长指令装不下完整地址，于是拆成 HI20/LO12 之类的组合，由链接器分别回填。
  * ------------------------------------------------------------------------- */
+/* 每条说明都必须「自包含」：单独点开任意一条都能读懂，
+   不允许出现「同上 / 同样 / 如前」这类必须依赖上一条才能理解的措辞。 */
 const RV_RELOC_PATCH = {
-  R_RISCV_CALL: { n: 2, fields: ['imm[31:12]（auipc 高 20 位）', 'imm[11:0]（jalr 低 12 位）'], note: 'auipc 装载目标地址高 20 位，jalr 装载低 12 位，两条指令拼出一个完整调用目标' },
-  R_RISCV_CALL_PLT: { n: 2, fields: ['imm[31:12]（auipc 高 20 位）', 'imm[11:0]（jalr 低 12 位）'], note: '同上，但目标是 PLT 桩——外部函数调用或需要动态链接的场景' },
-  R_RISCV_PCREL_HI20: { n: 1, fields: ['imm[31:12]（auipc 高 20 位）'], note: 'auipc 装载 PC 相对地址的高 20 位；低 12 位由配对的 LO12 重定位补上' },
-  R_RISCV_HI20: { n: 1, fields: ['imm[31:12]（lui 高 20 位）'], note: 'lui 装载绝对地址的高 20 位，低 12 位由 LO12 补' },
-  R_RISCV_GOT_HI20: { n: 1, fields: ['imm[31:12]（auipc 高 20 位）'], note: 'auipc 装载 GOT 表项的高 20 位' },
-  R_RISCV_TLS_GOT_HI20: { n: 1, fields: ['imm[31:12]（auipc 高 20 位）'], note: 'TLS 场景下 GOT 表项的高 20 位' },
-  R_RISCV_TLS_GD_HI20: { n: 1, fields: ['imm[31:12]（auipc 高 20 位）'], note: 'TLS 通用动态模型的高 20 位' },
-  R_RISCV_LO12_I: { n: 1, fields: ['imm[11:0]（I 型立即数）'], note: 'I 型指令（addi/lw/jalr…）的低 12 位立即数回填' },
-  R_RISCV_PCREL_LO12_I: { n: 1, fields: ['imm[11:0]（I 型立即数）'], note: '与 PCREL_HI20 配对的低 12 位回填（I 型）' },
-  R_RISCV_TPREL_LO12_I: { n: 1, fields: ['imm[11:0]（I 型立即数）'], note: '线程指针相对地址的低 12 位（I 型）' },
-  R_RISCV_LO12_S: { n: 1, fields: ['imm[11:5]', 'imm[4:0]'], note: 'S 型指令（sw/sd）的低 12 位——它在编码里被打散成两段' },
-  R_RISCV_PCREL_LO12_S: { n: 1, fields: ['imm[11:5]', 'imm[4:0]'], note: '与 PCREL_HI20 配对的低 12 位回填（S 型）' },
-  R_RISCV_TPREL_LO12_S: { n: 1, fields: ['imm[11:5]', 'imm[4:0]'], note: '线程指针相对地址的低 12 位（S 型）' },
-  R_RISCV_JAL: { n: 1, fields: ['imm[20|10:1|11|19:12]'], note: 'jal 的 20 位跳转偏移——位域在编码里散落在 4 处' },
-  R_RISCV_RVC_JUMP: { n: 1, fields: ['CJ 编码跳转偏移'], note: '压缩指令 c.j / c.jal 的跳转偏移回填' },
-  R_RISCV_BRANCH: { n: 1, fields: ['imm[12|10:5]', 'imm[4:1|11]'], note: '条件分支的 12 位偏移——同样被打散成两段' },
-  R_RISCV_RVC_BRANCH: { n: 1, fields: ['CB 编码偏移'], note: '压缩条件分支 c.beqz/c.bnez 的偏移回填' },
-  R_RISCV_ALIGN: { n: 0, note: '不是回填数据，而是告诉链接器「这里可能需要插入/删除填充字节以满足对齐」，因此会改变后续地址' },
-  R_RISCV_RELAX: { n: 0, note: '松弛标记：允许链接器把 auipc+addi 之类的序列优化成更短的指令，本身不改任何位' },
-  R_RISCV_ADD8: { n: 0, data: true, note: '对目标位置做字节级加运算（多用于 DWARF 调试信息）' },
-  R_RISCV_SUB8: { n: 0, data: true, note: '对目标位置做字节级减运算' },
-  R_RISCV_RELATIVE: { n: 0, data: true, note: '把「加载基址 + addend」写入目标位置（数据/指针重定位，不涉及指令）' },
-  R_RISCV_32: { n: 0, data: true, note: '写入 32 位绝对地址' },
-  R_RISCV_64: { n: 0, data: true, note: '写入 64 位绝对地址' },
-  R_RISCV_JUMP_SLOT: { n: 0, data: true, note: 'PLT/GOT 跳转槽：绑定后写入目标函数真实地址' },
-  R_RISCV_TLS_DTPMOD64: { n: 0, data: true, note: '写入 TLS 模块 ID' },
-  R_RISCV_TLS_DTPREL64: { n: 0, data: true, note: '写入 TLS 块内偏移' },
-  R_RISCV_TLS_TPREL64: { n: 0, data: true, note: '写入线程指针相对偏移' }
+  R_RISCV_CALL: {
+    n: 2, fields: ['imm[31:12]（auipc 高 20 位）', 'imm[11:0]（jalr 低 12 位）'],
+    note: '把 auipc + jalr 这一对指令改写成一次完整的函数调用：auipc 填入「目标地址 − 当前指令地址」的高 20 位，' +
+      '紧跟的 jalr 填入低 12 位并跳到该地址。两个立即数合起来才构成完整调用目标。'
+  },
+  R_RISCV_CALL_PLT: {
+    n: 2, fields: ['imm[31:12]（auipc 高 20 位）', 'imm[11:0]（jalr 低 12 位）'],
+    note: '把 auipc + jalr 这对指令改写成一次函数调用（auipc 填高 20 位、jalr 填低 12 位并跳转），但跳转目的地不是函数本体而是 PLT 桩：' +
+      '当被调用函数定义在别的模块、需要动态链接器参与解析时，链接器先把调用指向 .plt 中的一小段桩代码，' +
+      '桩再按需解析出真实地址并跳过去。因此这种重定位在依赖外部库的程序里最常出现。'
+  },
+  R_RISCV_PCREL_HI20: {
+    n: 1, fields: ['imm[31:12]（auipc 高 20 位）'],
+    note: '改写 auipc 指令的 imm[31:12]：写入「目标地址 − 当前指令地址」的高 20 位。' +
+      '低 12 位要靠随后配对出现的 R_RISCV_PCREL_LO12_I/S 补上，两条重定位合起来才是一个完整的 PC 相对地址。'
+  },
+  R_RISCV_HI20: {
+    n: 1, fields: ['imm[31:12]（lui 高 20 位）'],
+    note: '改写 lui 指令的 imm[31:12]：写入目标符号绝对地址的高 20 位。' +
+      '低 12 位由配对的 R_RISCV_LO12_I/S 补齐，用于访问地址固定的全局变量或常量。'
+  },
+  R_RISCV_GOT_HI20: {
+    n: 1, fields: ['imm[31:12]（auipc 高 20 位）'],
+    note: '改写 auipc 指令的 imm[31:12]：写入该符号在 GOT（全局偏移表）中表项地址的高 20 位。' +
+      '配合低 12 位算出表项地址后，程序先从 GOT 表项里取出符号真实地址，再间接访问——' +
+      '这是位置无关代码（PIE / 共享库）引用外部符号的标准做法。'
+  },
+  R_RISCV_TLS_GOT_HI20: {
+    n: 1, fields: ['imm[31:12]（auipc 高 20 位）'],
+    note: '改写 auipc 指令的 imm[31:12]：写入线程局部变量在 GOT 中表项地址的高 20 位。' +
+      '这是 TLS 的 initial-exec 访问模型：程序从 GOT 表项取出「相对线程指针的偏移」，再据此定位变量。'
+  },
+  R_RISCV_TLS_GD_HI20: {
+    n: 1, fields: ['imm[31:12]（auipc 高 20 位）'],
+    note: '改写 auipc 指令的 imm[31:12]：写入 TLS 索引的高 20 位。' +
+      '这是 TLS 的通用动态模型：程序先用该索引调用 __tls_get_addr，由运行期库算出当前线程中变量的地址，' +
+      '因此可以在运行期才加载的共享库里访问线程局部变量。'
+  },
+  R_RISCV_LO12_I: {
+    n: 1, fields: ['imm[11:0]（I 型立即数）'],
+    note: '改写 I 型指令（addi / lw / ld / jalr / csrr 等）的 imm[11:0]：写入目标地址的低 12 位。' +
+      '它总是与一条提供高 20 位的重定位配对使用，两者合起来构成完整地址。'
+  },
+  R_RISCV_PCREL_LO12_I: {
+    n: 1, fields: ['imm[11:0]（I 型立即数）'],
+    note: '改写 I 型指令的 imm[11:0]：写入「目标地址 − auipc 所在地址」的低 12 位。' +
+      '链接器靠这条重定位引用的标签找到与它配对的那条 PCREL_HI20，从而把高低位凑成同一个目标地址。'
+  },
+  R_RISCV_TPREL_LO12_I: {
+    n: 1, fields: ['imm[11:0]（I 型立即数）'],
+    note: '改写 I 型指令的 imm[11:0]：写入「目标地址 − 线程指针 tp」的低 12 位。' +
+      '它与提供高位的 TPREL_HI20 配对，用于按线程指针直接访问线程局部变量。'
+  },
+  R_RISCV_LO12_S: {
+    n: 1, fields: ['imm[11:5]', 'imm[4:0]'],
+    note: '改写 S 型存储指令（sw / sd / fsw / fsd）的低 12 位偏移：该偏移在 S 型编码里被拆成 imm[11:5] 与 imm[4:0] 两段，' +
+      '链接器按位域分别回填。它与提供高 20 位的重定位配对，构成完整目标地址。'
+  },
+  R_RISCV_PCREL_LO12_S: {
+    n: 1, fields: ['imm[11:5]', 'imm[4:0]'],
+    note: '改写 S 型存储指令的两段低 12 位偏移（imm[11:5] 与 imm[4:0]）：写入「目标地址 − auipc 所在地址」的低 12 位，' +
+      '与同组的 R_RISCV_PCREL_HI20 配对，用于向 PC 相对位置写数据。'
+  },
+  R_RISCV_TPREL_LO12_S: {
+    n: 1, fields: ['imm[11:5]', 'imm[4:0]'],
+    note: '改写 S 型存储指令的两段低 12 位偏移（imm[11:5] 与 imm[4:0]）：写入「目标地址 − 线程指针 tp」的低 12 位，' +
+      '与同组的 TPREL_HI20 配对，用于写入线程局部变量。'
+  },
+  R_RISCV_JAL: {
+    n: 1, fields: ['imm[20|10:1|11|19:12]'],
+    note: '改写 jal 指令的 20 位跳转偏移：该偏移在 J 型编码里被拆散到 imm[20|10:1|11|19:12] 四处，' +
+      '链接器按位域分别回填「目标地址 − 当前指令地址」，使跳转落到目标上。'
+  },
+  R_RISCV_RVC_JUMP: {
+    n: 1, fields: ['CJ 编码的跳转偏移位域'],
+    note: '改写压缩指令 c.j / c.jal 的跳转偏移（CJ 格式把偏移散落在多个位域中）：' +
+      '压缩格式能表示的偏移范围远小于 32 位的 jal，因此只适用于近距离跳转。'
+  },
+  R_RISCV_BRANCH: {
+    n: 1, fields: ['imm[12|10:5]', 'imm[4:1|11]'],
+    note: '改写条件分支指令（beq / bne / blt / bge / bltu / bgeu）的 12 位跳转偏移：' +
+      '该偏移在 B 型编码里被拆成 imm[12|10:5] 与 imm[4:1|11] 两段，链接器按位域分别回填。'
+  },
+  R_RISCV_RVC_BRANCH: {
+    n: 1, fields: ['CB 编码的偏移位域'],
+    note: '改写压缩条件分支指令 c.beqz / c.bnez 的偏移字段（CB 格式，偏移位域是散开的）：' +
+      '它能表达的跳转范围比标准 B 型分支更小，仅适合短距离分支。'
+  },
+  R_RISCV_ALIGN: {
+    n: 0,
+    note: '这一条不写入任何数据：它标记「链接器可能需要在此处插入或删除若干填充字节以满足对齐要求」。' +
+      '一旦填充长度改变，该位置之后所有指令的地址都会整体前移或后移，因此链接器必须同时修正其后所有重定位。'
+  },
+  R_RISCV_RELAX: {
+    n: 0,
+    note: '这一条不写入任何数据：它标记紧邻其上的那条重定位所覆盖的指令序列「可以被收缩」。' +
+      '链接器若确认目标地址落在更短指令的可达范围内，就把这段序列换成等价但更短的指令' +
+      '（例如把 8 字节的 auipc + jalr 调用换成 4 字节的 jal），并相应修正其后所有地址。'
+  },
+  R_RISCV_ADD8: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 1 字节宽度加到目标位置原有数据上（多用于 DWARF 调试信息里表达标签之间的距离）。' },
+  R_RISCV_ADD16: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 2 字节宽度加到目标位置原有数据上。' },
+  R_RISCV_ADD32: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 4 字节宽度加到目标位置原有数据上。' },
+  R_RISCV_ADD64: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 8 字节宽度加到目标位置原有数据上。' },
+  R_RISCV_SUB8: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 1 字节宽度从目标位置原有数据中减去（常用于表达两个标签之间的距离）。' },
+  R_RISCV_SUB16: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 2 字节宽度从目标位置原有数据中减去。' },
+  R_RISCV_SUB32: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 4 字节宽度从目标位置原有数据中减去。' },
+  R_RISCV_SUB64: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 8 字节宽度从目标位置原有数据中减去。' },
+  R_RISCV_RELATIVE: {
+    n: 0, data: true,
+    note: '不需要符号（r_info 的符号索引为 0）：把「加载基址 + addend」写入目标位置。' +
+      '动态链接器据此把程序/共享库里预先写死的占位值改成运行期真实地址，是位置无关代码最基础的重定位。'
+  },
+  R_RISCV_32: { n: 0, data: true, note: '把符号地址加上 addend 的结果，按 32 位宽度以绝对值形式写入目标位置（不做 PC 相对计算，通常用于数据指针表）。' },
+  R_RISCV_64: { n: 0, data: true, note: '把符号地址加上 addend 的结果，按 64 位宽度以绝对值形式写入目标位置（不做 PC 相对计算，通常用于数据指针表）。' },
+  R_RISCV_JUMP_SLOT: {
+    n: 0, data: true,
+    note: '写入目标函数的真实地址，落点是 GOT 中的跳转槽：PLT 桩第一次被调用时由动态链接器填好这里，之后的调用就直接命中真实地址，不再解析。'
+  },
+  R_RISCV_TLS_DTPMOD32: { n: 0, data: true, note: '写入该线程局部变量所属模块的 TLS 模块 ID（32 位），它是 __tls_get_addr 所需 TLS 索引的一半。' },
+  R_RISCV_TLS_DTPMOD64: { n: 0, data: true, note: '写入该线程局部变量所属模块的 TLS 模块 ID（64 位），它是 __tls_get_addr 所需 TLS 索引的一半。' },
+  R_RISCV_TLS_DTPREL32: { n: 0, data: true, note: '写入该线程局部变量在其 TLS 块内的偏移（32 位），它是 __tls_get_addr 所需 TLS 索引的另一半。' },
+  R_RISCV_TLS_DTPREL64: { n: 0, data: true, note: '写入该线程局部变量在其 TLS 块内的偏移（64 位），它是 __tls_get_addr 所需 TLS 索引的另一半。' },
+  R_RISCV_TLS_TPREL32: { n: 0, data: true, note: '写入该线程局部变量相对线程指针 tp 的偏移（32 位），用于按线程指针直接寻址的访问方式。' },
+  R_RISCV_TLS_TPREL64: { n: 0, data: true, note: '写入该线程局部变量相对线程指针 tp 的偏移（64 位），用于按线程指针直接寻址的访问方式。' }
 };
 
 /** 该重定位类型的修补说明 */

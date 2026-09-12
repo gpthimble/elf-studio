@@ -151,7 +151,7 @@ src/
 test/
   make_fixture.py        生成测试夹具（手工构造的 RISC-V ELF + clang 交叉编译的 x86-64 ELF）
   run_tests.js           测试运行器（在 Deno 中执行浏览器脚本）
-  tests.js               468 项断言
+  tests.js               1902 项断言
   syntax_check.js        语法检查 + HTML/JS 的 id 引用一致性检查
   run_all.sh             一键跑完全部验证并重新构建
   fixtures/              生成的二进制夹具
@@ -174,13 +174,20 @@ test/
 3. **x86 解码器 × 真实编译器产物（LLVM 金标准）**
    `make_fixture.py` 用本机 `clang -target x86_64-unknown-linux-gnu -c` 编译出真实的 ELF 目标文件，并用 `llvm-objdump` 记录每条指令的地址；测试逐条比对**指令边界**是否与 LLVM 完全一致（变长编码下这是最关键的正确性指标）。当前结果：**完全一致**。
 
+4. **说明文案 × 自包含性守则（防止再出现「同上」这类空话）**
+   面板里的每条解释都可能被单独点开，任何依赖上一条才能读懂的措辞都是缺陷。测试会把
+   **全部重定位修补说明、19 组枚举说明与 300+ 条取值说明、结构字段文档、段用途词典**扫一遍，
+   禁止出现「同上 / 同前 / 同样 / 如前 / 见上」等自指措辞，并要求每条说明达到最低完整度
+   （重定位说明 ≥15 字、枚举说明 ≥10 字、字段说明 ≥6 字）；同时校验每种重定位都声明了
+   「涉及几条指令 / 是否只写数据」，避免出现没有定义的修补行为。
+
 运行全部验证：
 
 ```sh
 sh test/run_all.sh
 # 或分别执行
 python3 test/make_fixture.py
-deno run --allow-read test/run_tests.js     # 468 项断言
+deno run --allow-read test/run_tests.js     # 1902 项断言
 deno run --allow-read test/syntax_check.js  # 语法 + id 引用检查
 ```
 

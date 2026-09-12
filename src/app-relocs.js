@@ -46,35 +46,133 @@ function relocFieldGroups(elf, r) {
  * 各类重定位「到底改哪条指令的哪些位」——这是 RISC-V 重定位的核心知识点：
  * 定长指令装不下完整地址，于是拆成 HI20/LO12 之类的组合，由链接器分别回填。
  * ------------------------------------------------------------------------- */
+/* 每条说明都必须「自包含」：单独点开任意一条都能读懂，
+   不允许出现「同上 / 同样 / 如前」这类必须依赖上一条才能理解的措辞。 */
 const RV_RELOC_PATCH = {
-  R_RISCV_CALL: { n: 2, fields: ['imm[31:12]（auipc 高 20 位）', 'imm[11:0]（jalr 低 12 位）'], note: 'auipc 装载目标地址高 20 位，jalr 装载低 12 位，两条指令拼出一个完整调用目标' },
-  R_RISCV_CALL_PLT: { n: 2, fields: ['imm[31:12]（auipc 高 20 位）', 'imm[11:0]（jalr 低 12 位）'], note: '同上，但目标是 PLT 桩——外部函数调用或需要动态链接的场景' },
-  R_RISCV_PCREL_HI20: { n: 1, fields: ['imm[31:12]（auipc 高 20 位）'], note: 'auipc 装载 PC 相对地址的高 20 位；低 12 位由配对的 LO12 重定位补上' },
-  R_RISCV_HI20: { n: 1, fields: ['imm[31:12]（lui 高 20 位）'], note: 'lui 装载绝对地址的高 20 位，低 12 位由 LO12 补' },
-  R_RISCV_GOT_HI20: { n: 1, fields: ['imm[31:12]（auipc 高 20 位）'], note: 'auipc 装载 GOT 表项的高 20 位' },
-  R_RISCV_TLS_GOT_HI20: { n: 1, fields: ['imm[31:12]（auipc 高 20 位）'], note: 'TLS 场景下 GOT 表项的高 20 位' },
-  R_RISCV_TLS_GD_HI20: { n: 1, fields: ['imm[31:12]（auipc 高 20 位）'], note: 'TLS 通用动态模型的高 20 位' },
-  R_RISCV_LO12_I: { n: 1, fields: ['imm[11:0]（I 型立即数）'], note: 'I 型指令（addi/lw/jalr…）的低 12 位立即数回填' },
-  R_RISCV_PCREL_LO12_I: { n: 1, fields: ['imm[11:0]（I 型立即数）'], note: '与 PCREL_HI20 配对的低 12 位回填（I 型）' },
-  R_RISCV_TPREL_LO12_I: { n: 1, fields: ['imm[11:0]（I 型立即数）'], note: '线程指针相对地址的低 12 位（I 型）' },
-  R_RISCV_LO12_S: { n: 1, fields: ['imm[11:5]', 'imm[4:0]'], note: 'S 型指令（sw/sd）的低 12 位——它在编码里被打散成两段' },
-  R_RISCV_PCREL_LO12_S: { n: 1, fields: ['imm[11:5]', 'imm[4:0]'], note: '与 PCREL_HI20 配对的低 12 位回填（S 型）' },
-  R_RISCV_TPREL_LO12_S: { n: 1, fields: ['imm[11:5]', 'imm[4:0]'], note: '线程指针相对地址的低 12 位（S 型）' },
-  R_RISCV_JAL: { n: 1, fields: ['imm[20|10:1|11|19:12]'], note: 'jal 的 20 位跳转偏移——位域在编码里散落在 4 处' },
-  R_RISCV_RVC_JUMP: { n: 1, fields: ['CJ 编码跳转偏移'], note: '压缩指令 c.j / c.jal 的跳转偏移回填' },
-  R_RISCV_BRANCH: { n: 1, fields: ['imm[12|10:5]', 'imm[4:1|11]'], note: '条件分支的 12 位偏移——同样被打散成两段' },
-  R_RISCV_RVC_BRANCH: { n: 1, fields: ['CB 编码偏移'], note: '压缩条件分支 c.beqz/c.bnez 的偏移回填' },
-  R_RISCV_ALIGN: { n: 0, note: '不是回填数据，而是告诉链接器「这里可能需要插入/删除填充字节以满足对齐」，因此会改变后续地址' },
-  R_RISCV_RELAX: { n: 0, note: '松弛标记：允许链接器把 auipc+addi 之类的序列优化成更短的指令，本身不改任何位' },
-  R_RISCV_ADD8: { n: 0, data: true, note: '对目标位置做字节级加运算（多用于 DWARF 调试信息）' },
-  R_RISCV_SUB8: { n: 0, data: true, note: '对目标位置做字节级减运算' },
-  R_RISCV_RELATIVE: { n: 0, data: true, note: '把「加载基址 + addend」写入目标位置（数据/指针重定位，不涉及指令）' },
-  R_RISCV_32: { n: 0, data: true, note: '写入 32 位绝对地址' },
-  R_RISCV_64: { n: 0, data: true, note: '写入 64 位绝对地址' },
-  R_RISCV_JUMP_SLOT: { n: 0, data: true, note: 'PLT/GOT 跳转槽：绑定后写入目标函数真实地址' },
-  R_RISCV_TLS_DTPMOD64: { n: 0, data: true, note: '写入 TLS 模块 ID' },
-  R_RISCV_TLS_DTPREL64: { n: 0, data: true, note: '写入 TLS 块内偏移' },
-  R_RISCV_TLS_TPREL64: { n: 0, data: true, note: '写入线程指针相对偏移' }
+  R_RISCV_CALL: {
+    n: 2, fields: ['imm[31:12]（auipc 高 20 位）', 'imm[11:0]（jalr 低 12 位）'],
+    note: '把 auipc + jalr 这一对指令改写成一次完整的函数调用：auipc 填入「目标地址 − 当前指令地址」的高 20 位，' +
+      '紧跟的 jalr 填入低 12 位并跳到该地址。两个立即数合起来才构成完整调用目标。'
+  },
+  R_RISCV_CALL_PLT: {
+    n: 2, fields: ['imm[31:12]（auipc 高 20 位）', 'imm[11:0]（jalr 低 12 位）'],
+    note: '把 auipc + jalr 这对指令改写成一次函数调用（auipc 填高 20 位、jalr 填低 12 位并跳转），但跳转目的地不是函数本体而是 PLT 桩：' +
+      '当被调用函数定义在别的模块、需要动态链接器参与解析时，链接器先把调用指向 .plt 中的一小段桩代码，' +
+      '桩再按需解析出真实地址并跳过去。因此这种重定位在依赖外部库的程序里最常出现。'
+  },
+  R_RISCV_PCREL_HI20: {
+    n: 1, fields: ['imm[31:12]（auipc 高 20 位）'],
+    note: '改写 auipc 指令的 imm[31:12]：写入「目标地址 − 当前指令地址」的高 20 位。' +
+      '低 12 位要靠随后配对出现的 R_RISCV_PCREL_LO12_I/S 补上，两条重定位合起来才是一个完整的 PC 相对地址。'
+  },
+  R_RISCV_HI20: {
+    n: 1, fields: ['imm[31:12]（lui 高 20 位）'],
+    note: '改写 lui 指令的 imm[31:12]：写入目标符号绝对地址的高 20 位。' +
+      '低 12 位由配对的 R_RISCV_LO12_I/S 补齐，用于访问地址固定的全局变量或常量。'
+  },
+  R_RISCV_GOT_HI20: {
+    n: 1, fields: ['imm[31:12]（auipc 高 20 位）'],
+    note: '改写 auipc 指令的 imm[31:12]：写入该符号在 GOT（全局偏移表）中表项地址的高 20 位。' +
+      '配合低 12 位算出表项地址后，程序先从 GOT 表项里取出符号真实地址，再间接访问——' +
+      '这是位置无关代码（PIE / 共享库）引用外部符号的标准做法。'
+  },
+  R_RISCV_TLS_GOT_HI20: {
+    n: 1, fields: ['imm[31:12]（auipc 高 20 位）'],
+    note: '改写 auipc 指令的 imm[31:12]：写入线程局部变量在 GOT 中表项地址的高 20 位。' +
+      '这是 TLS 的 initial-exec 访问模型：程序从 GOT 表项取出「相对线程指针的偏移」，再据此定位变量。'
+  },
+  R_RISCV_TLS_GD_HI20: {
+    n: 1, fields: ['imm[31:12]（auipc 高 20 位）'],
+    note: '改写 auipc 指令的 imm[31:12]：写入 TLS 索引的高 20 位。' +
+      '这是 TLS 的通用动态模型：程序先用该索引调用 __tls_get_addr，由运行期库算出当前线程中变量的地址，' +
+      '因此可以在运行期才加载的共享库里访问线程局部变量。'
+  },
+  R_RISCV_LO12_I: {
+    n: 1, fields: ['imm[11:0]（I 型立即数）'],
+    note: '改写 I 型指令（addi / lw / ld / jalr / csrr 等）的 imm[11:0]：写入目标地址的低 12 位。' +
+      '它总是与一条提供高 20 位的重定位配对使用，两者合起来构成完整地址。'
+  },
+  R_RISCV_PCREL_LO12_I: {
+    n: 1, fields: ['imm[11:0]（I 型立即数）'],
+    note: '改写 I 型指令的 imm[11:0]：写入「目标地址 − auipc 所在地址」的低 12 位。' +
+      '链接器靠这条重定位引用的标签找到与它配对的那条 PCREL_HI20，从而把高低位凑成同一个目标地址。'
+  },
+  R_RISCV_TPREL_LO12_I: {
+    n: 1, fields: ['imm[11:0]（I 型立即数）'],
+    note: '改写 I 型指令的 imm[11:0]：写入「目标地址 − 线程指针 tp」的低 12 位。' +
+      '它与提供高位的 TPREL_HI20 配对，用于按线程指针直接访问线程局部变量。'
+  },
+  R_RISCV_LO12_S: {
+    n: 1, fields: ['imm[11:5]', 'imm[4:0]'],
+    note: '改写 S 型存储指令（sw / sd / fsw / fsd）的低 12 位偏移：该偏移在 S 型编码里被拆成 imm[11:5] 与 imm[4:0] 两段，' +
+      '链接器按位域分别回填。它与提供高 20 位的重定位配对，构成完整目标地址。'
+  },
+  R_RISCV_PCREL_LO12_S: {
+    n: 1, fields: ['imm[11:5]', 'imm[4:0]'],
+    note: '改写 S 型存储指令的两段低 12 位偏移（imm[11:5] 与 imm[4:0]）：写入「目标地址 − auipc 所在地址」的低 12 位，' +
+      '与同组的 R_RISCV_PCREL_HI20 配对，用于向 PC 相对位置写数据。'
+  },
+  R_RISCV_TPREL_LO12_S: {
+    n: 1, fields: ['imm[11:5]', 'imm[4:0]'],
+    note: '改写 S 型存储指令的两段低 12 位偏移（imm[11:5] 与 imm[4:0]）：写入「目标地址 − 线程指针 tp」的低 12 位，' +
+      '与同组的 TPREL_HI20 配对，用于写入线程局部变量。'
+  },
+  R_RISCV_JAL: {
+    n: 1, fields: ['imm[20|10:1|11|19:12]'],
+    note: '改写 jal 指令的 20 位跳转偏移：该偏移在 J 型编码里被拆散到 imm[20|10:1|11|19:12] 四处，' +
+      '链接器按位域分别回填「目标地址 − 当前指令地址」，使跳转落到目标上。'
+  },
+  R_RISCV_RVC_JUMP: {
+    n: 1, fields: ['CJ 编码的跳转偏移位域'],
+    note: '改写压缩指令 c.j / c.jal 的跳转偏移（CJ 格式把偏移散落在多个位域中）：' +
+      '压缩格式能表示的偏移范围远小于 32 位的 jal，因此只适用于近距离跳转。'
+  },
+  R_RISCV_BRANCH: {
+    n: 1, fields: ['imm[12|10:5]', 'imm[4:1|11]'],
+    note: '改写条件分支指令（beq / bne / blt / bge / bltu / bgeu）的 12 位跳转偏移：' +
+      '该偏移在 B 型编码里被拆成 imm[12|10:5] 与 imm[4:1|11] 两段，链接器按位域分别回填。'
+  },
+  R_RISCV_RVC_BRANCH: {
+    n: 1, fields: ['CB 编码的偏移位域'],
+    note: '改写压缩条件分支指令 c.beqz / c.bnez 的偏移字段（CB 格式，偏移位域是散开的）：' +
+      '它能表达的跳转范围比标准 B 型分支更小，仅适合短距离分支。'
+  },
+  R_RISCV_ALIGN: {
+    n: 0,
+    note: '这一条不写入任何数据：它标记「链接器可能需要在此处插入或删除若干填充字节以满足对齐要求」。' +
+      '一旦填充长度改变，该位置之后所有指令的地址都会整体前移或后移，因此链接器必须同时修正其后所有重定位。'
+  },
+  R_RISCV_RELAX: {
+    n: 0,
+    note: '这一条不写入任何数据：它标记紧邻其上的那条重定位所覆盖的指令序列「可以被收缩」。' +
+      '链接器若确认目标地址落在更短指令的可达范围内，就把这段序列换成等价但更短的指令' +
+      '（例如把 8 字节的 auipc + jalr 调用换成 4 字节的 jal），并相应修正其后所有地址。'
+  },
+  R_RISCV_ADD8: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 1 字节宽度加到目标位置原有数据上（多用于 DWARF 调试信息里表达标签之间的距离）。' },
+  R_RISCV_ADD16: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 2 字节宽度加到目标位置原有数据上。' },
+  R_RISCV_ADD32: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 4 字节宽度加到目标位置原有数据上。' },
+  R_RISCV_ADD64: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 8 字节宽度加到目标位置原有数据上。' },
+  R_RISCV_SUB8: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 1 字节宽度从目标位置原有数据中减去（常用于表达两个标签之间的距离）。' },
+  R_RISCV_SUB16: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 2 字节宽度从目标位置原有数据中减去。' },
+  R_RISCV_SUB32: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 4 字节宽度从目标位置原有数据中减去。' },
+  R_RISCV_SUB64: { n: 0, data: true, note: '把符号地址与 addend 相加后的结果，按 8 字节宽度从目标位置原有数据中减去。' },
+  R_RISCV_RELATIVE: {
+    n: 0, data: true,
+    note: '不需要符号（r_info 的符号索引为 0）：把「加载基址 + addend」写入目标位置。' +
+      '动态链接器据此把程序/共享库里预先写死的占位值改成运行期真实地址，是位置无关代码最基础的重定位。'
+  },
+  R_RISCV_32: { n: 0, data: true, note: '把符号地址加上 addend 的结果，按 32 位宽度以绝对值形式写入目标位置（不做 PC 相对计算，通常用于数据指针表）。' },
+  R_RISCV_64: { n: 0, data: true, note: '把符号地址加上 addend 的结果，按 64 位宽度以绝对值形式写入目标位置（不做 PC 相对计算，通常用于数据指针表）。' },
+  R_RISCV_JUMP_SLOT: {
+    n: 0, data: true,
+    note: '写入目标函数的真实地址，落点是 GOT 中的跳转槽：PLT 桩第一次被调用时由动态链接器填好这里，之后的调用就直接命中真实地址，不再解析。'
+  },
+  R_RISCV_TLS_DTPMOD32: { n: 0, data: true, note: '写入该线程局部变量所属模块的 TLS 模块 ID（32 位），它是 __tls_get_addr 所需 TLS 索引的一半。' },
+  R_RISCV_TLS_DTPMOD64: { n: 0, data: true, note: '写入该线程局部变量所属模块的 TLS 模块 ID（64 位），它是 __tls_get_addr 所需 TLS 索引的一半。' },
+  R_RISCV_TLS_DTPREL32: { n: 0, data: true, note: '写入该线程局部变量在其 TLS 块内的偏移（32 位），它是 __tls_get_addr 所需 TLS 索引的另一半。' },
+  R_RISCV_TLS_DTPREL64: { n: 0, data: true, note: '写入该线程局部变量在其 TLS 块内的偏移（64 位），它是 __tls_get_addr 所需 TLS 索引的另一半。' },
+  R_RISCV_TLS_TPREL32: { n: 0, data: true, note: '写入该线程局部变量相对线程指针 tp 的偏移（32 位），用于按线程指针直接寻址的访问方式。' },
+  R_RISCV_TLS_TPREL64: { n: 0, data: true, note: '写入该线程局部变量相对线程指针 tp 的偏移（64 位），用于按线程指针直接寻址的访问方式。' }
 };
 
 /** 该重定位类型的修补说明 */

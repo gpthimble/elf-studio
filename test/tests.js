@@ -672,7 +672,54 @@ ok(sum.length > 0 && sum[0].bytes > 0, '概览统计有数据');
   ok(sum2.indexOf('puts') >= 0 && sum2.indexOf('<idx 0>') < 0, '总览里不出现空符号条目');
 }
 
-/* ============================ 12. 字典完整性 ============================ */
+/* ================== 12. 说明文案质量守则（杜绝自指措辞） ==================
+ * 面板里的每一条说明都可能在任意上下文被单独点开，因此必须自包含：
+ * 「同上 / 同样 / 如前 / 见上」这类措辞会让用户读到一段没有意义的解释。
+ * 这里把整份文档文案扫一遍，防止以后再写回去。 */
+{
+  const BANNED = ['同上', '同前', '同样', '如上述', '如上所述', '如前述', '见上', '见前', '参见上述',
+    '同左', '不再赘述', '略述', '以此类推'];
+  const scan = (text, where, minLen) => {
+    const okText = typeof text === 'string';
+    ok(okText, where + ' 存在说明文字');
+    if (!okText) return;
+    const hit = BANNED.filter(w => text.indexOf(w) >= 0);
+    eq(hit.join('/') || '（无）', '（无）', where + ' 不含自指措辞');
+    if (minLen) ok(text.length >= minLen, where + ' 说明足够完整（' + text.length + ' ≥ ' + minLen + ' 字）');
+  };
+
+  // 重定位修补说明：每条都要能独立读懂
+  const rp = Object.keys(RV_RELOC_PATCH);
+  ok(rp.length >= 30, '重定位修补说明覆盖 ' + rp.length + ' 种类型');
+  for (const name of rp) scan(RV_RELOC_PATCH[name].note, '重定位说明 ' + name, 15);
+
+  // 枚举字典
+  for (const key of Object.keys(ENUMS)) {
+    scan(ENUMS[key].desc, '枚举说明 ' + key, 10);
+    for (const v of (ENUMS[key].values || [])) scan(v.desc, '枚举取值 ' + key + '.' + v.name, 4);
+  }
+
+  // 结构字段文档
+  for (const group of [EHDR_FIELDS, PHDR_FIELDS, SHDR_FIELDS, SYM_FIELDS, RELA_FIELDS]) {
+    for (const bits of Object.keys(group)) {
+      for (const f of group[bits]) scan(f.desc, '字段说明 ' + f.name, 6);
+    }
+  }
+
+  // 段用途词典
+  for (const name of Object.keys(SECTION_PURPOSE)) scan(SECTION_PURPOSE[name], '段说明 ' + name, 10);
+
+  // 每一类重定位都应有「涉及几条指令 / 是否写数据」的定义，避免出现未定义行为
+  for (const name of rp) {
+    const e = RV_RELOC_PATCH[name];
+    ok(typeof e.n === 'number' && e.n >= 0, name + ' 定义了涉及指令条数');
+    if (e.n > 0) ok(Array.isArray(e.fields) && e.fields.length >= 1, name + ' 定义了被修改的位域');
+    else ok(e.data === true || name.indexOf('RELAX') >= 0 || name.indexOf('ALIGN') >= 0,
+      name + ' 要么标注为数据类，要么是标记项');
+  }
+}
+
+/* ============================ 13. 字典完整性 ============================ */
 for (const key of Object.keys(ENUMS)) {
   const e = ENUMS[key];
   const composite = Array.isArray(e.parts) && e.parts.length > 0;
