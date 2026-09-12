@@ -1,155 +1,159 @@
+**English** | [中文](README.zh-CN.md)
+
 # ELF Studio
 
-在浏览器里查看 ELF 文件结构的工具，重点支持 RISC-V。
+A viewer for ELF file structures that runs entirely in the browser, with a focus on RISC-V.
 
-- 在线使用：<https://gpthimble.github.io/elf-studio/>
-- 仓库：<https://github.com/gpthimble/elf-studio>
+- Online: <https://gpthimble.github.io/elf-studio/>
+- Repository: <https://github.com/gpthimble/elf-studio>
 
-解析全部在浏览器本地完成，文件不会上传到服务器。
+Parsing happens locally in the browser; files are never uploaded to a server.
 
-## 使用方式
+The interface is currently in Chinese.
 
-| 方式 | 做法 |
+## Usage
+
+| Method | How |
 | --- | --- |
-| 在线 | 打开 <https://gpthimble.github.io/elf-studio/> |
-| 离线 | 下载 [`elf-studio.html`](https://github.com/gpthimble/elf-studio/raw/main/elf-studio.html) 后双击打开 |
-| 本地构建 | `python3 build.py`（生成 `elf-studio.html` 与 `index.html`） |
+| Online | Open <https://gpthimble.github.io/elf-studio/> |
+| Offline | Download [`elf-studio.html`](https://github.com/gpthimble/elf-studio/raw/main/elf-studio.html) and open it |
+| Build locally | `python3 build.py` (writes `elf-studio.html` and `index.html`) |
 
-页面可以拖入自己的 ELF 文件，也可以点「加载内置示例」查看一个 RISC-V 可执行文件。
+Drag in your own ELF file, or click "Load built-in sample" to open a small RISC-V executable.
 
-## 功能
+## Features
 
-### Hex 视图
+### Hex view
 
-- 按 ELF 物理结构逐字节着色：ELF 头、程序头表、段头表、`.text`、`.rodata`、`.data`、`.bss`、符号表、字符串表、重定位表、`.dynamic`、Note、调试段、PLT/GOT、属性段以及文件空隙。
-- 每行左侧有结构色条，段落起点标出结构名；分区表完整覆盖文件，不重叠也不遗漏。
-- 只渲染可视行，行数很多的文件也能正常滚动。
+- Colours every byte by its physical ELF structure: ELF header, program header table, section header table, `.text`, `.rodata`, `.data`, `.bss`, symbol tables, string tables, relocation tables, `.dynamic`, notes, debug sections, PLT/GOT, attribute sections, and file padding.
+- Each row has a colour bar on the left, and the start of a region is labelled inline. The region map covers the whole file without overlaps or gaps.
+- Only visible rows are rendered, so files with tens of thousands of rows still scroll smoothly.
 
-### 字段与字节
+### Fields and bytes
 
-- 悬停任意字节，底部显示文件偏移、虚拟地址（含来源段或程序头）、字节值、结构分区、字段名与字段说明；枚举字段同时给出解码结果。
-- 单击或拖选可以固定探针内容，按 `Esc` 取消固定。
-- 悬停字段行、符号行或反汇编行时，高亮整段字节而不是单个字节。
-- 顶部「跳转」框接受偏移、虚拟地址、段名或符号名。
-- 探针上有逐位、逐字段的导航按钮，键盘对应 `←/→`（一个字节）、`↑/↓`（一整行）、`PageUp/PageDown`、`Home/End`、`[` `]`（上一个/下一个结构字段）。探针会显示当前偏移与字段进度。
+- Hovering a byte shows its file offset, virtual address (with the section or program header it comes from), byte value, containing region, field name and field description; enum fields are decoded on the spot.
+- Clicking or dragging pins the inspector; `Esc` unpins it.
+- Hovering a field row, symbol row or disassembly line highlights the whole byte range rather than a single byte.
+- The jump box accepts an offset, a virtual address, a section name or a symbol name.
+- The inspector has step buttons for browsing byte by byte or field by field. Keyboard: `←/→` byte, `↑/↓` one row of 16 bytes, `PageUp/PageDown`, `Home/End`, and `[` `]` for the previous/next structure field. It shows the current offset and field index.
 
-### 枚举与字段说明
+### Enums and field documentation
 
-- 19 组枚举、300 多条取值，标注规范出处、取值与说明，覆盖 `EI_*`、`e_type`、`e_machine`、`p_type`、`p_flags`、`sh_type`、`sh_flags`、`st_bind`、`st_type`、`st_other`、`st_shndx`、`DT_*`、`R_RISCV_*`、`R_X86_64_*`、RISC-V `e_flags` 等。
-- 点击字段行弹出该字段的全部可选取值，当前取值高亮；`st_info` 这类打包字段会拆成 `st_bind` 与 `st_type` 两张子表。
-- 字典页按字段在文件中的偏移顺序排列，每一项带当前值、所在结构与出现次数，可定位到对应字节。
-- 附 `Elf32/64_Ehdr、Phdr、Shdr、Sym、Rela` 的字段布局速查表。
+- 19 enum groups with 300+ values, each with its specification reference, value and explanation, covering `EI_*`, `e_type`, `e_machine`, `p_type`, `p_flags`, `sh_type`, `sh_flags`, `st_bind`, `st_type`, `st_other`, `st_shndx`, `DT_*`, `R_RISCV_*`, `R_X86_64_*` and the RISC-V `e_flags` sub-fields.
+- Clicking a field row opens a panel with all possible values for that field, with the value used by the current file highlighted. Packed fields such as `st_info` are split into separate `st_bind` and `st_type` tables.
+- The dictionary page is ordered by the offset at which each field appears in the file, and lists the current value, the containing structure and the number of occurrences; each entry can be located in the hex view.
+- Includes a layout reference for `Elf32/64_Ehdr`, `Phdr`, `Shdr`, `Sym` and `Rela`.
 
-### 反汇编
+### Disassembly
 
-- 对带 `SHF_EXECINSTR` 的段做线性扫描。RISC-V 覆盖 RV32/RV64 的 I/M/A/F/D、压缩指令 C、Zicsr/Zifencei 以及常用 Zba/Zbb/Zbs/Zbc，识别 `li/mv/ret/jr/j/nop/beqz/bnez/csrr` 等伪指令，跳转与分支目标命中符号表时标出函数名。
-- 点击指令行会同步定位左侧 Hex；指令行右侧的「位域」按钮就地展开该指令的编码拆解：按规范切开的字段色块、位号、每个字段的二进制与含义，用来说明助记符是由哪些位决定的。
-- x86-64 使用简化解码器，覆盖常见整数与 SSE 指令，未覆盖的编码以 `.byte` 列出，指令长度仍然可靠。
+- Linear sweep over sections marked `SHF_EXECINSTR`. For RISC-V it covers RV32/RV64 I/M/A/F/D, the compressed C extension, Zicsr/Zifencei and the common Zba/Zbb/Zbs/Zbc instructions, recognises pseudo-instructions (`li/mv/ret/jr/j/nop/beqz/bnez/csrr`) and labels jump and branch targets that match symbols.
+- Clicking an instruction line locates the corresponding bytes in the hex view. The "fields" button on a line expands the encoding breakdown for that instruction: one colour block per specification field, the bit layout, and the binary value and meaning of each field, showing which bits produce the mnemonic.
+- x86-64 uses a simplified decoder that covers common integer and SSE instructions. Encodings outside that subset are listed as `.byte`, but instruction lengths remain correct.
 
-### 符号表
+### Symbol table
 
-- 解析 `.symtab` 与 `.dynsym`，列出名称、`st_value`、`st_size`、绑定、类型、可见性、所属段，以及符号表项偏移与内容偏移两列；支持搜索与按类型、绑定、所属表过滤。
-- 每行有「表项 / 内容 / 解析 / 反汇编」四个动作，分别跳到符号表项字节、段内内容、解析面板与反编译视图。
-- 解析面板把表项按字段着色分组并画出引用关系：`st_name` 指向字符串表中的名字，`st_shndx` 指向段头与段内容，`st_value` 指向内容偏移，`st_size` 给出字节区间；同时列出引用该符号的重定位项。
+- Parses `.symtab` and `.dynsym` and lists name, `st_value`, `st_size`, binding, type, visibility and section, plus separate columns for the offset of the symbol table entry and the offset of the target content. Supports search and filtering by type, binding and table.
+- Each row has four actions: entry, content, analysis and disassembly, jumping to the symbol table entry bytes, the section content, the analysis panel, or the disassembly view.
+- The analysis panel groups the entry bytes by field and draws the references: `st_name` points into the string table for the name, `st_shndx` points to the section header and its content, `st_value` points to the content offset, and `st_size` gives the byte range. Relocations that reference the symbol are listed as well.
 
-### 重定位
+### Relocations
 
-- 段总览列出这段重定位涉及哪些符号、各被引用多少次，以及它们是未定义的外部符号还是定义在某个段里。
-- 单项面板把 `r_offset` / `r_info` / `r_addend` 按字段着色分组，并把 `r_info` 拆成符号索引与类型两段（ELF64 为高 32 位与低 32 位，ELF32 为高 24 位与低 8 位），给出还原算式与全部可选取值列表。
-- 被修补的位置显示段内偏移、文件偏移与所在段，并用色块标出被修改的指令及其被改动的位域：`R_RISCV_CALL/CALL_PLT` 标出 `auipc` 与 `jalr` 两条，`HI20`、`LO12_I`、`LO12_S`、`JAL`、`BRANCH` 等各按自己的规则标注。数据段重定位显示将被写入的字节。
-- `R_RISCV_RELAX`、`R_RISCV_ALIGN` 这类不写数据的条目按修饰项呈现：说明它修饰的是紧邻其上的那条重定位，并高亮被修饰重定位覆盖的、可被松弛的指令序列。
+- The section summary lists which symbols a relocation section refers to, how often each is referenced, and whether they are undefined external symbols or defined in a section.
+- The per-entry panel groups the bytes of `r_offset`, `r_info` and `r_addend`, splits `r_info` into symbol index and type (high 32 bits and low 32 bits for ELF64; high 24 and low 8 for ELF32), and shows the reconstruction formula plus the complete list of relocation types.
+- The patched location is shown as section-relative offset, file offset and section, with the modified instructions highlighted and the modified bit fields labelled: `R_RISCV_CALL` and `R_RISCV_CALL_PLT` mark the `auipc` and `jalr` pair, while `HI20`, `LO12_I`, `LO12_S`, `JAL` and `BRANCH` each follow their own rule. Data relocations show the bytes that will be written.
+- Entries that write no data, such as `R_RISCV_RELAX` and `R_RISCV_ALIGN`, are presented as modifiers: the panel states which relocation they modify (the entry immediately above), and highlights the instruction sequence that the modified relocation covers and that may be relaxed.
 
-### 段内容
+### Section contents
 
-- `.text` 列出指令预览；`.symtab` 给出表项解码表；`.strtab` 列出字符串；`.rela.*` 列出重定位项；`.dynamic` 列出标签与取值；`.note.*` 与 `.riscv.attributes` 就地解析。
-- `.rodata`、`.data` 等提供内容解码面板，可在字符串、32 位字、64 位字、指针候选四种视图间切换；字视图给出十六进制、十进制与浮点解读，落在已映射段内的值会解析成「段名 + 偏移」，能对应到函数时同时给出符号名。
+- `.text` shows an instruction preview, `.symtab` an entry decode table, `.strtab` its strings, `.rela.*` the relocation entries, `.dynamic` its tags and values, and `.note.*` and `.riscv.attributes` are decoded in place.
+- `.rodata`, `.data` and similar sections get a decode panel with four views: strings, 32-bit words, 64-bit words and pointer candidates. Word views show hex, decimal and floating-point interpretations, and values that fall inside a mapped section are resolved to "section + offset", including the symbol name when one matches.
 
-### 其它
+### Other
 
-- 概览页显示结构分布条与配色图例，点击色块或图例可跳转到对应区间。
-- 解析异常（魔数不符、类别或字节序非法、偏移越界等）会给出具体提示。
-- 支持 ELF32/ELF64、小端与大端、ET_REL/ET_EXEC/ET_DYN/ET_CORE。
+- The overview page shows a colour-coded structure bar and legend; clicking a segment or legend entry jumps to that range.
+- Parsing problems (bad magic, invalid class or byte order, out-of-range offsets and so on) produce specific messages.
+- Supports ELF32/ELF64, little and big endian, and ET_REL/ET_EXEC/ET_DYN/ET_CORE.
 
-## 截图
+## Screenshots
 
-| 概览 | 反汇编 |
+| Overview | Disassembly |
 | --- | --- |
-| ![概览](preview-overview.png) | ![反汇编](preview-disasm.png) |
+| ![Overview](preview-overview.png) | ![Disassembly](preview-disasm.png) |
 
-| 字段取值弹出面板 | 字节序与位图 |
+| Field value panel | Byte order and bit map |
 | --- | --- |
-| ![字段](preview-fields.png) | ![字节序](preview-byteswap.png) |
+| ![Fields](preview-fields.png) | ![Byte order](preview-byteswap.png) |
 
-| 段内容与指令编码 | 字典 |
+| Section contents and instruction encoding | Dictionary |
 | --- | --- |
-| ![段内容](preview-instruction-encoding.png) | ![字典](preview-dictionary.png) |
+| ![Section contents](preview-instruction-encoding.png) | ![Dictionary](preview-dictionary.png) |
 
-## 验证
+## Testing
 
-测试用 Deno 直接运行浏览器脚本，配合 Python 生成的二进制夹具：
+Tests run the browser scripts directly under Deno, together with binary fixtures generated by Python:
 
 ```sh
-sh test/run_all.sh                          # 生成夹具、跑测试、语法检查、打包
+sh test/run_all.sh                          # fixtures, tests, syntax check, build
 python3 test/make_fixture.py
-deno run --allow-read test/run_tests.js     # 1902 项断言
-deno run --allow-read test/syntax_check.js  # 语法与 DOM 引用检查
+deno run --allow-read test/run_tests.js     # 1902 assertions
+deno run --allow-read test/syntax_check.js  # syntax and DOM reference checks
 ```
 
-正确性来自三种互相独立的对照：
+Correctness is checked against three independent sources:
 
-1. RISC-V 解码器对照规范编码向量。`test/tests.js` 列出手工核对的编码，例如 `00100513` 是 `li a0,1`、`8082` 是 `ret`、`ff010113` 是 `addi sp,sp,-16`、`f1402573` 是 `csrr a0,mhartid`，逐条比对解码输出。
-2. ELF 解析器对照按规范拼装的夹具。`test/make_fixture.py` 逐字节构造 ELF32/ELF64 文件，测试校验头部字段、段名解析、符号属性、偏移与虚拟地址映射、分区是否完整覆盖文件等。同一段 `.text` 由 Python 编码、由 JS 解码，两侧独立实现。
-3. x86 解码器对照真实编译器产物。用 `clang -target x86_64-unknown-linux-gnu -c` 编译出目标文件，用 `llvm-objdump` 记录每条指令的地址，测试逐条比对指令边界是否一致。
+1. The RISC-V decoder against canonical encodings. `test/tests.js` lists hand-verified encodings such as `00100513` for `li a0,1`, `8082` for `ret`, `ff010113` for `addi sp,sp,-16` and `f1402573` for `csrr a0,mhartid`, and compares them with the decoder output.
+2. The ELF parser against fixtures assembled byte by byte. `test/make_fixture.py` builds ELF32/ELF64 files by hand, and the tests check header fields, section name resolution, symbol attributes, offset-to-address mapping and whether the region map covers the file exactly. The same `.text` is encoded by Python and decoded by JavaScript, so the two sides are independent implementations.
+3. The x86 decoder against real compiler output. An object file is produced with `clang -target x86_64-unknown-linux-gnu -c`, its instruction addresses are recorded with `llvm-objdump`, and the tests compare instruction boundaries one by one.
 
-测试还会扫描全部说明文案（重定位说明、枚举说明、字段文档、段用途词典），禁止「同上」「同前」这类依赖上下文的措辞，并要求每条说明达到最低完整度。
+The tests also scan every piece of documentation text (relocation notes, enum descriptions, field documentation, section purpose dictionary) and reject wording that depends on context, such as "same as above", while requiring a minimum level of detail.
 
-夹具：`hello-riscv32.elf`、`hello-riscv64.elf`（手工构造的小程序）、`big-riscv64.elf`（47 个段、406 个符号、39 条重定位、200 个函数）、`reloc-riscv64.o`（含 `R_RISCV_CALL_PLT` 与紧随其后的 `R_RISCV_RELAX`）、`x86-64-sample.o`（clang 产物）。
+Fixtures: `hello-riscv32.elf` and `hello-riscv64.elf` (small hand-built programs), `big-riscv64.elf` (47 sections, 406 symbols, 39 relocations, 200 functions), `reloc-riscv64.o` (with `R_RISCV_CALL_PLT` followed by `R_RISCV_RELAX`), and `x86-64-sample.o` (clang output).
 
-## 项目结构
+## Project layout
 
 ```
-elf-studio.html          构建产物：单文件应用
-index.html               同一份内容的副本，供 GitHub Pages 以根路径访问
-build.py                 把 src/ 打包成单文件
-push_to_github.sh        建仓库、推送、开启 Pages 的辅助脚本
+elf-studio.html          Build output: the single-file application
+index.html               The same content, served at the site root by GitHub Pages
+build.py                 Bundles src/ into the single file
+push_to_github.sh        Helper script that creates the repo, pushes and enables Pages
 src/
-  shell.html             HTML 骨架
-  style.css              样式，结构配色也定义在这里
-  util.js                工具函数
-  elf-const.js           ELF 常量、枚举字典、字段文档、段用途词典
-  elf-enums.js           枚举取值解码
-  elf-parse.js           ELF 解析器
-  disasm-riscv.js        RISC-V 反汇编与指令位域拆解
-  disasm-x86.js          x86 / x86-64 反汇编（常用子集）
-  hexview.js             多色块 Hex 视图
-  app-core.js            状态、文件加载、联动、字节探针、概览
-  app-panels.js          各结构面板
-  app-symbols.js         符号表项解析与引用关系
-  app-relocs.js          重定位解析与引用链路
-  app-encoding.js        指令编码对照面板
-  app-disasm.js          反汇编视图
+  shell.html             HTML skeleton
+  style.css              Styles, including the structure colour scheme
+  util.js                Utility functions
+  elf-const.js           ELF constants, enum dictionary, field documentation, section dictionary
+  elf-enums.js           Enum value decoding
+  elf-parse.js           ELF parser
+  disasm-riscv.js        RISC-V disassembler and instruction field breakdown
+  disasm-x86.js          x86 / x86-64 disassembler (common subset)
+  hexview.js             Multi-colour hex view
+  app-core.js            State, file loading, synchronisation, byte inspector, overview
+  app-panels.js          Structure panels
+  app-symbols.js         Symbol table entry analysis and references
+  app-relocs.js          Relocation analysis and reference chain
+  app-encoding.js        Instruction encoding panel
+  app-disasm.js          Disassembly view
 test/
-  make_fixture.py        生成测试夹具
-  tests.js               断言
-  run_tests.js           测试运行器
-  syntax_check.js        语法与 DOM 引用检查
-  run_all.sh             一键跑完全部验证并重新构建
+  make_fixture.py        Generates the fixtures
+  tests.js               Assertions
+  run_tests.js           Test runner
+  syntax_check.js        Syntax and DOM reference checks
+  run_all.sh             Runs everything and rebuilds
 ```
 
-## 实现说明
+## Implementation notes
 
-`parseELF()` 一次遍历产出三部分数据：结构体（头部、段、符号、重定位、Note、属性）、颜色分区表 `regions`、字节标注表 `annotations`（把 `e_machine`、`p_offset`、`sh_flags` 这类字段映射到 `[start, end)` 字节区间）。探针查询标注表就能确定某个字节属于哪个字段。
+`parseELF()` produces three sets of data in one pass: the structures (header, sections, program headers, symbols, relocations, notes, attributes), a colour region map (`regions`), and a byte annotation table (`annotations`) that maps fields such as `e_machine`, `p_offset` and `sh_flags` to `[start, end)` byte ranges. The inspector only has to query the annotation table to determine which field a byte belongs to.
 
-段表与程序头可能互相重叠（例如 `PT_LOAD` 覆盖了 `.text` 与文件填充），因此给各类结构设定优先级后做一次扫描线裁决：优先级高的分区在自身起点处截断优先级低的分区，保证覆盖完整，最具体的结构优先显示。
+Section headers and program headers can overlap (a `PT_LOAD` segment usually covers `.text` as well as padding), so each kind of structure is given a priority and the regions are resolved with a single sweep: a higher-priority region cuts off a lower-priority one at its start. The result covers the file exactly and lets the most specific structure win.
 
-Hex 视图用固定行高、绝对定位与 `translateY` 实现虚拟滚动，逐字节着色查一张与文件等长的 `Uint8Array`，选中与高亮只改可视节点的 class，不重建 DOM。
+The hex view uses a fixed row height, absolute positioning and `translateY` for virtual scrolling. Byte colours are looked up in a `Uint8Array` as long as the file. Selection and highlighting only change classes on visible nodes instead of rebuilding the DOM.
 
-RISC-V 是变长编码，解码先看低 2 位判断 16 位还是 32 位；立即数按规范的位域编号抽取，B/J/S 型散落的位域在测试里有专门覆盖。若文件未声明 `EF_RISCV_RVC`，16 位指令会按数据展示并给出提示，也可以在设置里强制开启解析。
+RISC-V uses variable-length encoding, so decoding first checks the low two bits to tell 16-bit instructions from 32-bit ones. Immediates are extracted by their specification bit fields, with special test coverage for the scattered bit fields of the B, J and S formats. If a file does not declare `EF_RISCV_RVC`, 16-bit instructions are shown as data with a note, and the parsing mode can be forced in the settings.
 
-## 已知限制
+## Known limitations
 
-- x86/x86-64 解码器只覆盖常见整数指令与部分 SSE，指令长度可靠，浮点、AVX 等复杂编码可能显示为 `.byte`。
-- 不支持 ARM、AArch64、MIPS 的指令解码（结构与 Hex 仍可查看）。
-- 不解析 DWARF 语义，`.debug_info`、`.debug_line` 只按段展示；反汇编是线性扫描，不构建控制流图，代码段里混排的数据可能被当作指令。
-- 未解析 `.gnu.hash`、SysV `.hash` 的桶内容与符号版本表的语义。
-- 文件很大（超过约 100 MB）时浏览器内存会比较吃紧。
+- The x86/x86-64 decoder covers common integer instructions and part of SSE. Instruction lengths are reliable, but complex encodings such as floating point and AVX may appear as `.byte`.
+- ARM, AArch64 and MIPS instructions are not decoded (structures and hex are still available).
+- DWARF is not interpreted: `.debug_info` and `.debug_line` are shown as sections only. Disassembly is a linear sweep without a control flow graph, so data embedded in a code section may be decoded as instructions.
+- The contents of `.gnu.hash` and SysV `.hash`, and symbol version tables, are not interpreted.
+- Very large files (beyond roughly 100 MB) are limited by browser memory.
