@@ -541,11 +541,46 @@ ul.plain li.warn { color: var(--warn); }
 .rl-body { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap; min-width: 0; }
 .rl-insns { margin: 4px 0 0 10px; border-left: 2px solid #2c4a68; padding-left: 8px; }
 .rl-insn {
-  display: grid; grid-template-columns: 11ch 15ch 1fr; gap: 8px;
+  display: grid; grid-template-columns: 6.5ch 11ch 15ch 1fr auto; gap: 8px; align-items: baseline;
   font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; cursor: crosshair;
-  padding: 1px 4px; border-radius: 4px;
+  padding: 2px 6px; border-radius: 5px; margin-bottom: 2px;
 }
 .rl-insn:hover { background: rgba(77, 171, 247, .12); }
+.rl-insn.patched {
+  background: rgba(255, 212, 59, .16);
+  box-shadow: inset 3px 0 0 var(--warn);
+  border: 1px solid rgba(255, 212, 59, .35);
+}
+.rl-insn.patched .sp-text { color: #fff; font-weight: 600; }
+.rl-insn.context { opacity: .55; }
+.rl-tag {
+  font-size: 10px; padding: 0 5px; border-radius: 8px; text-align: center;
+  background: #2c2712; color: #ffd43b; border: 1px solid #6b5a1e;
+}
+.rl-insn.context .rl-tag { background: #1a212b; color: var(--fg-mute); border-color: var(--line-2); }
+.rl-field {
+  font-size: 10.5px; color: #ffd43b; background: #241f0e; border: 1px solid #6b5a1e;
+  border-radius: 8px; padding: 0 6px; white-space: nowrap;
+}
+.rl-field b { color: #ffe89a; }
+.rl-patch-note {
+  margin: 5px 0 0 10px; font-size: 11px; color: #c8d3e0;
+  background: #0f141c; border-left: 3px solid var(--warn); border-radius: 4px; padding: 5px 9px;
+}
+.rl-where-wrap { display: inline-flex; align-items: baseline; gap: 4px; flex-wrap: wrap; }
+.rl-where { font-size: 11.5px; color: #c8d3e0; }
+.rl-where b { color: #9fd0ff; }
+.rl-info-math {
+  margin: 6px 0; font-size: 11px; color: var(--fg-dim);
+  background: #0f141c; border-radius: 5px; padding: 5px 9px;
+}
+.rl-info-math b { color: #ffd43b; }
+.rl-cat { max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 7px; margin-top: 5px; }
+.rl-cat-hint { padding: 5px 8px 0; }
+.rl-cat .ep-row { cursor: pointer; grid-template-columns: 5ch 26ch 1fr 12ch; }
+.rl-cat .ep-row:hover { background: rgba(77, 171, 247, .1); }
+.rl-filter { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 7px 0; font-size: 11.5px; }
+.rl-f.on { background: #17324a; border-color: var(--accent); color: #cfe8ff; }
 .rl-summary { margin: 7px 0; padding: 7px 9px; background: #0f141c; border-left: 3px solid #4b3f8f; border-radius: 5px; }
 .rl-sum-title { font-size: 11.5px; color: #c8d3e0; margin-bottom: 5px; }
 .rl-sum-title b { color: #c3b6ff; }
@@ -5411,7 +5446,9 @@ function renderRelocations() {
       '而 -pie / -shared 产物会保留 .rela.dyn、.rela.plt 等，供动态链接器在加载时修补。</p></div>';
     return;
   }
-  const rows = elf.relocations.map(function (r) {
+  const list = S.relocTypeFilter ? elf.relocations.filter(function (r) { return r.type === S.relocTypeFilter; })
+    : elf.relocations;
+  const rows = list.map(function (r) {
     return '<tr class="rel-row" data-off="' + r.fileOff + '">' +
       '<td class="mono">' + esc(r.table) + '</td><td class="mono">' + r.index + '</td>' +
       '<td class="mono">' + hx(r.offset, elf.is64 ? 10 : 6) + '</td>' +
@@ -5421,6 +5458,7 @@ function renderRelocations() {
   }).join('');
   pane.innerHTML = '<div class="card"><div class="card-h"><b>重定位表</b><span class="muted">共 ' + elf.relocations.length + ' 项</span></div>' +
     relocSectionSummary(elf, elf.shdrs.find(function (s) { return s.name === elf.relocations[0].table; }) || elf.shdrs[0]) +
+    typeFilterBar(elf) +
     '<div class="table-scroll tall"><table class="grid"><thead><tr><th>所在表</th><th>#</th><th>r_offset（虚拟地址）</th>' +
     '<th>类型</th><th>符号</th><th>加数 addend</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
     '<div class="muted small">提示：r_info 是打包字段——64 位下高 32 位为符号索引、低 32 位为类型；32 位下高 24 位为符号索引、低 8 位为类型。' +
@@ -5433,6 +5471,36 @@ function renderRelocations() {
         selectVaddr(r.offset, 4, { smooth: true });
         toggleRelocXref(tr, r);          // 就地展开字段拆解 + 引用链路
       }
+    });
+  });
+  wireTypeFilterBar(pane);
+}
+
+/** 重定位类型筛选条（含「全部类型」入口，便于按类型聚焦） */
+function typeFilterBar(elf) {
+  const key = relocTypeEnumKey(elf);
+  if (!key || !ENUMS[key]) return '';
+  const used = new Set(elf.relocations.map(function (r) { return r.type; }));
+  const items = ENUMS[key].values.map(function (v) {
+    if (used.has(v.v)) return { v: v.v, name: v.name, count: elf.relocations.filter(function (r) { return r.type === v.v; }).length };
+    return null;
+  }).filter(Boolean);
+  const cur = S.relocTypeFilter;
+  return '<div class="rl-filter"><span class="muted">按类型筛选：</span>' +
+    '<button class="mini rl-f' + (cur === null || cur === undefined ? ' on' : '') + '" data-rt="all">全部 ' + elf.relocations.length + '</button>' +
+    items.map(function (it) {
+      return '<button class="mini rl-f' + (cur === it.v ? ' on' : '') + '" data-rt="' + it.v + '">' +
+        esc(it.name) + ' ×' + it.count + '</button>';
+    }).join('') +
+    (cur !== null && cur !== undefined ? '<button class="mini" data-rt="all">清除筛选 ✕</button>' : '') +
+    '</div>';
+}
+
+function wireTypeFilterBar(root) {
+  $$('.rl-f[data-rt]', root).forEach(function (b) {
+    b.addEventListener('click', function () {
+      S.relocTypeFilter = b.dataset.rt === 'all' ? null : +b.dataset.rt;
+      renderRelocations();
     });
   });
 }
@@ -5964,23 +6032,87 @@ function relocFieldGroups(elf, r) {
   return groups;
 }
 
-/** 被修补位置附近的指令（RISC-V 的重定位大多在修补指令里的立即数） */
-function relocPatchedInsns(elf, r) {
-  if (elf.arch !== 'riscv') return [];
+/* ---------------------------------------------------------------------------
+ * 各类重定位「到底改哪条指令的哪些位」——这是 RISC-V 重定位的核心知识点：
+ * 定长指令装不下完整地址，于是拆成 HI20/LO12 之类的组合，由链接器分别回填。
+ * ------------------------------------------------------------------------- */
+const RV_RELOC_PATCH = {
+  R_RISCV_CALL: { n: 2, fields: ['imm[31:12]（auipc 高 20 位）', 'imm[11:0]（jalr 低 12 位）'], note: 'auipc 装载目标地址高 20 位，jalr 装载低 12 位，两条指令拼出一个完整调用目标' },
+  R_RISCV_CALL_PLT: { n: 2, fields: ['imm[31:12]（auipc 高 20 位）', 'imm[11:0]（jalr 低 12 位）'], note: '同上，但目标是 PLT 桩——外部函数调用或需要动态链接的场景' },
+  R_RISCV_PCREL_HI20: { n: 1, fields: ['imm[31:12]（auipc 高 20 位）'], note: 'auipc 装载 PC 相对地址的高 20 位；低 12 位由配对的 LO12 重定位补上' },
+  R_RISCV_HI20: { n: 1, fields: ['imm[31:12]（lui 高 20 位）'], note: 'lui 装载绝对地址的高 20 位，低 12 位由 LO12 补' },
+  R_RISCV_GOT_HI20: { n: 1, fields: ['imm[31:12]（auipc 高 20 位）'], note: 'auipc 装载 GOT 表项的高 20 位' },
+  R_RISCV_TLS_GOT_HI20: { n: 1, fields: ['imm[31:12]（auipc 高 20 位）'], note: 'TLS 场景下 GOT 表项的高 20 位' },
+  R_RISCV_TLS_GD_HI20: { n: 1, fields: ['imm[31:12]（auipc 高 20 位）'], note: 'TLS 通用动态模型的高 20 位' },
+  R_RISCV_LO12_I: { n: 1, fields: ['imm[11:0]（I 型立即数）'], note: 'I 型指令（addi/lw/jalr…）的低 12 位立即数回填' },
+  R_RISCV_PCREL_LO12_I: { n: 1, fields: ['imm[11:0]（I 型立即数）'], note: '与 PCREL_HI20 配对的低 12 位回填（I 型）' },
+  R_RISCV_TPREL_LO12_I: { n: 1, fields: ['imm[11:0]（I 型立即数）'], note: '线程指针相对地址的低 12 位（I 型）' },
+  R_RISCV_LO12_S: { n: 1, fields: ['imm[11:5]', 'imm[4:0]'], note: 'S 型指令（sw/sd）的低 12 位——它在编码里被打散成两段' },
+  R_RISCV_PCREL_LO12_S: { n: 1, fields: ['imm[11:5]', 'imm[4:0]'], note: '与 PCREL_HI20 配对的低 12 位回填（S 型）' },
+  R_RISCV_TPREL_LO12_S: { n: 1, fields: ['imm[11:5]', 'imm[4:0]'], note: '线程指针相对地址的低 12 位（S 型）' },
+  R_RISCV_JAL: { n: 1, fields: ['imm[20|10:1|11|19:12]'], note: 'jal 的 20 位跳转偏移——位域在编码里散落在 4 处' },
+  R_RISCV_RVC_JUMP: { n: 1, fields: ['CJ 编码跳转偏移'], note: '压缩指令 c.j / c.jal 的跳转偏移回填' },
+  R_RISCV_BRANCH: { n: 1, fields: ['imm[12|10:5]', 'imm[4:1|11]'], note: '条件分支的 12 位偏移——同样被打散成两段' },
+  R_RISCV_RVC_BRANCH: { n: 1, fields: ['CB 编码偏移'], note: '压缩条件分支 c.beqz/c.bnez 的偏移回填' },
+  R_RISCV_ALIGN: { n: 0, note: '不是回填数据，而是告诉链接器「这里可能需要插入/删除填充字节以满足对齐」，因此会改变后续地址' },
+  R_RISCV_RELAX: { n: 0, note: '松弛标记：允许链接器把 auipc+addi 之类的序列优化成更短的指令，本身不改任何位' },
+  R_RISCV_ADD8: { n: 0, data: true, note: '对目标位置做字节级加运算（多用于 DWARF 调试信息）' },
+  R_RISCV_SUB8: { n: 0, data: true, note: '对目标位置做字节级减运算' },
+  R_RISCV_RELATIVE: { n: 0, data: true, note: '把「加载基址 + addend」写入目标位置（数据/指针重定位，不涉及指令）' },
+  R_RISCV_32: { n: 0, data: true, note: '写入 32 位绝对地址' },
+  R_RISCV_64: { n: 0, data: true, note: '写入 64 位绝对地址' },
+  R_RISCV_JUMP_SLOT: { n: 0, data: true, note: 'PLT/GOT 跳转槽：绑定后写入目标函数真实地址' },
+  R_RISCV_TLS_DTPMOD64: { n: 0, data: true, note: '写入 TLS 模块 ID' },
+  R_RISCV_TLS_DTPREL64: { n: 0, data: true, note: '写入 TLS 块内偏移' },
+  R_RISCV_TLS_TPREL64: { n: 0, data: true, note: '写入线程指针相对偏移' }
+};
+
+/** 该重定位类型的修补说明 */
+function relocPatchInfo(elf, r) {
+  const name = relocTypeName(elf, r.type);
+  return { name: name, info: RV_RELOC_PATCH[name] || null };
+}
+
+/**
+ * 被修补位置：返回段内偏移、文件偏移、以及被修改的那几条指令 / 那几个字节
+ * 区分「被修补的指令」与「后续上下文指令」，并给出被修改的位域。
+ */
+function relocPatchTarget(elf, r) {
   const loc = vaddrToOffset(elf, r.offset);
-  if (!loc || !loc.section) return [];
+  const out = { loc: loc, patch: relocPatchInfo(elf, r), insns: [], patched: 0, data: null };
+  if (!loc || !loc.section) return out;
   const sec = loc.section;
+  out.secOffset = r.offset - sec.sh_addr;             // ET_REL 下这就是 r_offset 本身的含义
   const bytes = sectionBytes(elf, sec);
   const pos = loc.offset - sec.sh_offset;
-  if (pos < 0 || pos >= bytes.length) return [];
-  try {
-    return riscvDisassemble(bytes.subarray(pos), r.offset, {
-      bits: elf.is64 ? 64 : 32,
-      symbols: new Map(),
-      hasRVC: (elf.ehdr.e_flags & 1) === 1,
-      forceC: 'auto', fileBase: loc.offset, maxBytes: 12
-    }).slice(0, 3);
-  } catch (e) { return []; }
+  if (pos < 0 || pos >= bytes.length) return out;
+  const isCode = (sec.sh_flags & 0x4) !== 0;
+
+  if (isCode && elf.arch === 'riscv') {
+    try {
+      out.insns = riscvDisassemble(bytes.subarray(pos), r.offset, {
+        bits: elf.is64 ? 64 : 32, symbols: new Map(),
+        hasRVC: (elf.ehdr.e_flags & 1) === 1, forceC: 'auto',
+        fileBase: loc.offset, maxBytes: 16
+      }).slice(0, 3);
+    } catch (e) { out.insns = []; }
+    // 已知类型：明确标出前 N 条是被修补的；未知类型：不臆断，只作上下文
+    const want = out.patch.info ? out.patch.info.n : -1;
+    if (want >= 0) out.patched = Math.min(want, out.insns.length);
+    else out.unknownPatch = true;
+  } else {
+    // 数据位置：显示将被写入的那几个字节
+    const size = elf.is64 ? 8 : 4;
+    const raw = [];
+    for (let i = 0; i < size && pos + i < bytes.length; i++) raw.push(bytes[pos + i]);
+    out.data = { size: size, raw: raw };
+  }
+  return out;
+}
+
+/** 该重定位类型在本架构下的全部可选取值 */
+function relocTypeEnumKey(elf) {
+  return elf.arch === 'riscv' ? 'R_RISCV' : (elf.arch === 'x86-64' ? 'R_X86_64' : null);
 }
 
 /** 单个重定位项的解析面板 */
@@ -5989,8 +6121,10 @@ function relocXrefPanel(elf, r) {
   const entsz = elf.is64 ? (r.addend === null ? 16 : 24) : (r.addend === null ? 8 : 12);
   const sym = r.sym || null;                 // 解析阶段已按 sh_link 关联好符号表项
   const groups = relocFieldGroups(elf, r);
-  const loc = vaddrToOffset(elf, r.offset);
-  const insns = relocPatchedInsns(elf, r);
+  const tgt = relocPatchTarget(elf, r);
+  const loc = tgt.loc;
+  const insns = tgt.insns;
+  const patchInfo = tgt.patch.info;
   const typeName = relocTypeName(elf, r.type);
   const typeEntry = enumEntry(elf.arch === 'riscv' ? 'R_RISCV' : 'R_X86_64', r.type);
 
@@ -6025,7 +6159,63 @@ function relocXrefPanel(elf, r) {
       '<td class="xs-mean">' + esc(g.desc) + '</td></tr>';
   }).join('');
 
-  // ---- 引用关系链路 ----
+  // ---- 被修补的位置：指令级高亮 + 被修改的位 ----
+  let patchHtml = '';
+  if (loc) {
+    const where = '<span class="rl-where">' +
+      (tgt.secOffset !== undefined ? '<b class="mono">' + hx(tgt.secOffset) + '</b>（段内偏移）' : '') +
+      ' → <b class="mono">' + hx(loc.offset) + '</b>（文件偏移）' +
+      (loc.section ? ' → <b>' + esc(loc.section.name) + '</b>' : '') + '</span>';
+    if (insns.length) {
+      const insnRow = function (ins, idx, isPatched) {
+        const fieldNote = isPatched && patchInfo && patchInfo.fields[idx + 1]
+          ? patchInfo.fields[idx + 1] : (isPatched && patchInfo && patchInfo.fields.length === 1 ? patchInfo.fields[0] : '');
+        const bytes = Array.prototype.slice.call(ins.bytes).map(byteHex).join(' ');
+        // 被修补的指令用色块强调，并标出这条指令里被改动的位域
+        const fieldChips = (isPatched && patchInfo)
+          ? (patchInfo.fields.length > 1
+            ? '<span class="rl-field">改动位域 <b class="mono">' + esc(patchInfo.fields[idx] || patchInfo.fields[0]) + '</b></span>'
+            : '<span class="rl-field">改动位域 <b class="mono">' + esc(patchInfo.fields[0]) + '</b></span>')
+          : '';
+        return '<div class="rl-insn' + (isPatched ? ' patched' : ' context') + '"' +
+          ' data-xr-off="' + ins.fileOffset + '" data-xr-size="' + ins.size + '">' +
+          '<span class="rl-tag">' + (isPatched ? '被修补' : '上下文') + '</span>' +
+          '<span class="sp-addr">' + hx(ins.addr) + '</span>' +
+          '<span class="sp-bytes">' + bytes + '</span>' +
+          '<span class="sp-text">' + esc(ins.text) + '</span>' + fieldChips + '</div>';
+      };
+      let patchedIdx = 0;
+      const rendered = insns.map(function (ins, i) {
+        if (i < tgt.patched) { const html = insnRow(ins, patchedIdx, true); patchedIdx++; return html; }
+        return insnRow(ins, i, false);
+      }).join('');
+      patchHtml = '<div class="rl-chain"><span class="rl-label">在哪儿改</span><span class="xr-arrow">→</span>' +
+        '<span class="rl-body"><span class="rl-where-wrap">' + where + '</span></span></div>' +
+        '<div class="rl-insns">' + rendered + '</div>' +
+        '<div class="rl-patch-note">' +
+        (tgt.unknownPatch
+          ? '该类型的修补方式未收录，上面只是该位置的指令上下文。'
+          : (patchInfo
+            ? '<b>' + esc(typeName) + '</b>：' + esc(patchInfo.note) +
+              (patchInfo.n > 1 ? '（共涉及 ' + patchInfo.n + ' 条指令）' : '')
+            : '')) +
+        '</div>';
+    } else if (tgt.data) {
+      patchHtml = '<div class="rl-chain"><span class="rl-label">在哪儿改</span><span class="xr-arrow">→</span>' +
+        '<span class="rl-body">' + where + '</span></div>' +
+        '<div class="rl-insns"><div class="rl-insn patched" data-xr-off="' + loc.offset + '" data-xr-size="' + tgt.data.size + '">' +
+        '<span class="rl-tag">被写入</span>' +
+        '<span class="sp-addr">' + hx(loc.offset) + '</span>' +
+        '<span class="sp-bytes">' + tgt.data.raw.map(byteHex).join(' ') + '</span>' +
+        '<span class="sp-text muted">这 ' + tgt.data.size + ' 个字节将被重定位结果覆盖</span></div></div>' +
+        '<div class="rl-patch-note">' + (patchInfo ? '<b>' + esc(typeName) + '</b>：' + esc(patchInfo.note) : '') + '</div>';
+    }
+  } else {
+    patchHtml = '<div class="rl-chain"><span class="rl-label">在哪儿改</span><span class="xr-arrow">→</span>' +
+      '<span class="rl-body"><span class="xr-chip dim">r_offset 没有映射到文件字节（可能位于 .bss 或需要加载时才有地址）</span></span></div>';
+  }
+
+  // ---- 引用关系链路（改成谁 / 按什么规则改 / 加数）----
   const chain = [];
   chain.push({
     label: '改成谁', arrow: '→',
@@ -6040,20 +6230,6 @@ function relocXrefPanel(elf, r) {
     label: '按什么规则改', arrow: '→',
     body: '<span class="xr-chip dim">' + esc(typeName) + '</span>' +
       (typeEntry ? '<span class="muted">' + esc(typeEntry.desc) + '</span>' : '<span class="muted">（字典中暂无该类型的说明）</span>')
-  });
-  chain.push({
-    label: '在哪儿改', arrow: '→',
-    body: (loc
-      ? chip('文件偏移 ' + hx(loc.offset) + (loc.section ? '（' + loc.section.name + '）' : ''), loc.offset, 4, 'patch')
-      : '<span class="xr-chip dim">r_offset 没有映射到文件字节（可能位于 .bss）</span>') +
-      (insns.length
-        ? '<div class="rl-insns">' + insns.map(function (ins) {
-          return '<div class="rl-insn" data-xr-off="' + ins.fileOffset + '" data-xr-size="' + ins.size + '">' +
-            '<span class="sp-addr">' + hx(ins.addr) + '</span>' +
-            '<span class="sp-bytes">' + Array.prototype.slice.call(ins.bytes).map(byteHex).join(' ') + '</span>' +
-            '<span class="sp-text">' + esc(ins.text) + '</span></div>';
-        }).join('') + '<div class="muted small">↑ 被修补的指令（重定位通常改的就是这里的立即数）</div></div>'
-        : '')
   });
   if (r.addend !== null && r.addend !== undefined) {
     chain.push({
@@ -6083,8 +6259,34 @@ function relocXrefPanel(elf, r) {
     infoStrip +
     '<table class="grid compact xs-table"><thead><tr><th>字段</th><th>原始值</th><th>含义</th></tr></thead>' +
     '<tbody>' + rows + '</tbody></table>' +
+    '<div class="rl-info-math">r_info 的还原方式：<b class="mono">r_info = (符号索引 &lt;&lt; ' + typeBits +
+    ') | 类型</b>　→　<b class="mono">(' + r.symIndex + ' &lt;&lt; ' + typeBits + ') | ' + r.type + ' = ' + esc(hx(r.rawInfo)) + '</b></div>' +
+    '<div class="xs-sub">被修补的位置（改的是哪条指令、哪几位）</div>' + patchHtml +
     '<div class="xs-sub">引用关系链路</div>' + chainHtml +
+    relocTypeCatalog(elf, r.type) +
     '</div>';
+}
+
+/** 该架构下全部重定位类型（当前类型高亮），可展开查看 */
+function relocTypeCatalog(elf, currentType) {
+  const key = relocTypeEnumKey(elf);
+  if (!key || !ENUMS[key]) {
+    return '<div class="xs-sub">其它重定位类型</div><div class="muted">当前架构（' + esc(elf.arch) +
+      '）暂未收录类型字典。</div>';
+  }
+  const e = ENUMS[key];
+  const rows = e.values.map(function (v) {
+    const on = v.v === currentType;
+    return '<div class="ep-row' + (on ? ' on' : '') + '" data-rtype="' + v.v + '">' +
+      '<span class="ep-val mono">' + v.v + '</span>' +
+      '<span class="ep-name mono">' + esc(v.name) + '</span>' +
+      '<span class="ep-desc">' + esc(v.desc) + '</span>' +
+      '<span class="ep-mark">' + (on ? '✓ 本条重定位' : '') + '</span></div>';
+  }).join('');
+  return '<div class="xs-sub">全部 ' + e.values.length + ' 种 ' + e.title.split('—')[0].trim() +
+    ' 重定位类型 <button class="mini rl-cat-toggle">展开 ▾</button></div>' +
+    '<div class="rl-cat" hidden><div class="rl-cat-hint muted">点击任意类型可筛选其它重定位项（当前类型已高亮）</div>' +
+    '<div class="ep-list">' + rows + '</div></div>';
 }
 
 /**
@@ -6128,8 +6330,37 @@ function toggleRelocXref(tr, r) {
   row.innerHTML = '<td colspan="' + tr.children.length + '">' + relocXrefPanel(S.elf, r) + '</td>';
   tr.after(row);
   wireXref(row);
+  wireRelocExtras(row);
   row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   setStatus('已展开重定位项解析：r_offset（在哪儿改）→ r_info（符号索引 + 类型）→ 符号表项 → 符号指向的内容。');
+}
+
+/** 面板内的额外交互：展开类型总表、按类型筛选 */
+function wireRelocExtras(root) {
+  const t = $('.rl-cat-toggle', root);
+  const cat = $('.rl-cat', root);
+  if (t && cat) {
+    t.addEventListener('click', function (e) {
+      e.stopPropagation();
+      cat.hidden = !cat.hidden;
+      t.textContent = cat.hidden ? '展开 ▾' : '收起 ▴';
+      if (!cat.hidden) {
+        const on = $('.ep-row.on', cat);
+        if (on) cat.scrollTop = Math.max(0, on.offsetTop - cat.clientHeight / 2);
+      }
+    });
+  }
+  $$('.ep-row[data-rtype]', root).forEach(function (rowEl) {
+    rowEl.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const t2 = +rowEl.dataset.rtype;
+      const e2 = enumEntry(relocTypeEnumKey(S.elf), t2);
+      S.relocTypeFilter = (S.relocTypeFilter === t2) ? null : t2;
+      renderRelocations();
+      setStatus('重定位表已筛选为 ' + (S.relocTypeFilter === null ? '全部类型' :
+        (e2 ? e2.name : t2) + '（' + (e2 ? e2.desc : '') + '）'));
+    });
+  });
 }
 
 /* ===== src/app-encoding.js ===== */

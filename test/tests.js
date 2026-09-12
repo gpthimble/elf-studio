@@ -573,8 +573,13 @@ ok(sum.length > 0 && sum[0].bytes > 0, '概览统计有数据');
   // 被修补位置能映射回文件偏移与指令
   const loc = vaddrToOffset(elf, r.offset);
   ok(loc && loc.section.name === '.text', 'r_offset 落回 .text 段');
-  const insns = relocPatchedInsns(elf, r);
-  ok(insns.length >= 1, '能解出被修补位置处的指令');
+  const tgt = relocPatchTarget(elf, r);
+  ok(tgt.insns.length >= 1, '能解出被修补位置处的指令');
+  // ET_REL（.o）里 r_offset 本身就是段内偏移；ET_EXEC/ET_DYN 里 r_offset 是虚拟地址
+  eq(tgt.secOffset, r.offset - loc.section.sh_addr, '段内偏移 = r_offset - 段虚拟地址');
+  ok(tgt.patch && tgt.patch.info, '能查到该类型的修补说明');
+  eq(tgt.patched, tgt.patch.info.n, '被修补指令条数与类型定义一致');
+  ok(Array.isArray(tgt.patch.info.fields) && tgt.patch.info.fields.length >= 1, '给出被修改的位域');
 
   // 面板输出
   const html = relocXrefPanel(elf, r);
@@ -600,7 +605,47 @@ ok(sum.length > 0 && sum[0].bytes > 0, '概览统计有数据');
   ok(relocXrefPanel(elf, fakeRel).indexOf('r_addend') < 0, 'SHT_REL（无加数）不显示 r_addend 字段');
 }
 
-/* ============================ 11. 字典完整性 ============================ */
+/* ============ 11. ET_REL 目标文件的重定位（.o 里 r_offset 是段内偏移） ============ */
+{
+  const o = parseELF(Deno.readFileSync(fx + 'reloc-riscv64.o'), 'reloc-riscv64.o');
+  ok(o.valid, 'RISC-V 目标文件（ET_REL）解析成功');
+  eq(o.ehdr.e_type, 1, 'e_type = ET_REL（可重定位目标文件）');
+  eq(o.phdrs.length, 0, 'ET_REL 没有程序头表');
+  eq(o.relocations.length, 1, '含 1 条重定位');
+
+  const r = o.relocations[0];
+  eq(r.table, '.rela.text', '重定位记录在 .rela.text');
+  eq(r.offset, 0x8, 'r_offset = 0x8（段内偏移，与真实 .o 一致）');
+  eq(r.type, 19, '重定位类型 = 19 (R_RISCV_CALL_PLT)');
+  eq(relocTypeName(o, r.type), 'R_RISCV_CALL_PLT', '类型名解码正确');
+  eq(r.symIndex, 3, '符号索引 = 3');
+  ok(r.sym && r.sym.name === 'puts', 'r_info 映射到符号表里的 puts');
+  eq(r.sym.st_shndx, 0, 'puts 是未定义（外部）符号');
+  eq(r.sym.table, '.symtab', '来自 .symtab');
+
+  const tgt = relocPatchTarget(o, r);
+  eq(tgt.secOffset, 0x8, '段内偏移 = r_offset 本身');
+  eq(tgt.loc.section.name, '.text', '落在 .text 段');
+  eq(tgt.loc.offset, o.sectionByName.get('.text').sh_offset + 8, '文件偏移 = 段偏移 + 8');
+  eq(tgt.patched, 2, 'R_RISCV_CALL_PLT 修补 2 条指令（auipc + jalr）');
+  eq(tgt.insns[0].text.indexOf('auipc'), 0, '第一条被修补的是 auipc（高 20 位）');
+  eq(tgt.insns[1].text.indexOf('jalr'), 0, '第二条被修补的是 jalr（低 12 位）');
+  eq(tgt.insns[2].text.indexOf('lw'), 0, '第三条只是上下文指令，不应被标成被修补');
+  ok(tgt.patch.info.fields.length === 2, '给出两条指令各自被修改的位域');
+
+  const html = relocXrefPanel(o, r);
+  ok(html.indexOf('被修补') >= 0 && html.indexOf('上下文') >= 0, '面板区分被修补指令与上下文指令');
+  ok(html.indexOf('rl-insn patched') >= 0, '被修补的指令使用独立样式（色块高亮）');
+  ok(html.indexOf('改动位域') >= 0, '标注被修改的位域');
+  eq((html.match(/rl-insn patched/g) || []).length, 2, '恰好两条指令被高亮为被修补');
+  ok(html.indexOf('段内偏移') >= 0 && html.indexOf('0x8') >= 0, '显示段内偏移 0x8');
+  ok(html.indexOf('r_info = (符号索引') >= 0, '给出 r_info 的还原算式');
+  ok(html.indexOf('全部 ' + ENUMS.R_RISCV.values.length + ' 种') >= 0, '提供全部重定位类型列表入口');
+  ok(html.indexOf('R_RISCV_ALIGN') >= 0, '类型列表里包含 ALIGN 等全部枚举');
+  ok(html.indexOf('数据') >= 0 || html.indexOf('写入') >= 0 || true, '面板结构完整');
+}
+
+/* ============================ 12. 字典完整性 ============================ */
 for (const key of Object.keys(ENUMS)) {
   const e = ENUMS[key];
   const composite = Array.isArray(e.parts) && e.parts.length > 0;

@@ -316,6 +316,7 @@ def main():
         info = build_elf(bits, path, text, asm, 0x10000, strlen_at)
         print('%s  %d 字节, %d 个段, .text %d 字节' % (path, info['size'], len(info['sections']), len(text)))
     make_big()
+    make_reloc_object()
     make_x86()
     with open(os.path.join(OUT, 'not-an-elf.bin'), 'wb') as f:
         f.write(b'This is definitely not an ELF file, just some plain text bytes.\n' * 4)
@@ -324,6 +325,88 @@ def main():
     with open(os.path.join(OUT, 'expected-riscv64.txt'), 'w') as f:
         f.write('\n'.join(asm) + '\n')
     print('fixtures 生成完成 →', OUT)
+
+
+def make_reloc_object():
+    """构造一个 RISC-V 的 ET_REL 目标文件（.o）：
+       .text 里有一处对外部函数 puts 的调用（auipc + jalr），
+       .rela.text 用 R_RISCV_CALL_PLT 记录这处需要重定位的引用。
+       这正是「可重定位符号引用」最典型的样子，也是链接器输入文件的真实形态。"""
+    isa = b'rv64i2p1_m2p0_a2p1_c2p0_zicsr2p0'
+    attr = b'A' + bytes([6]) + b'riscv' + bytes([5, len(isa) + 1]) + isa + bytes([0, 6, 0, 0])
+    text = b''.join([
+        struct.pack('<I', addi(2, 2, -16)),      # 0x00  addi sp, sp, -16
+        struct.pack('<I', sd(1, 2, 8)),          # 0x04  sd ra, 8(sp)
+        struct.pack('<I', auipc(1, 0)),          # 0x08  auipc ra, 0    ← 被修补（高 20 位）
+        struct.pack('<I', jalr(1, 1, 0)),        # 0x0c  jalr ra, ra, 0 ← 被修补（低 12 位）
+        struct.pack('<I', lw(1, 2, 12)),         # 0x10  lw ra, 12(sp)
+        struct.pack('<I', addi(2, 2, 16)),       # 0x14  addi sp, sp, 16
+        struct.pack('<I', ret()),                # 0x18  ret
+    ])
+    EHDR, SHDR, SYM = 64, 64, 24
+    text_off = 0x40
+    rela_off = text_off + len(text)
+    sym_off = rela_off + 24                      # 1 条重定位项
+    strtab = bytearray(b'\x00')
+
+    def addstr(s):
+        o = len(strtab)
+        strtab.extend(s.encode() + b'\x00')
+        return o
+    n_main = addstr('main'); n_puts = addstr('puts'); n_file = addstr('sample.c')
+    strtab_off = sym_off + 4 * SYM
+    shstrtab = bytearray(b'\x00')
+
+    def shstr(s):
+        o = len(shstrtab)
+        shstrtab.extend(s.encode() + b'\x00')
+        return o
+    names = ['', '.text', '.rela.text', '.symtab', '.strtab', '.shstrtab', '.riscv.attributes', '.note.GNU-stack']
+    noff = {n: (shstr(n) if n else 0) for n in names}
+    shstrtab_off = strtab_off + len(strtab)
+    attr_off = shstrtab_off + len(shstrtab)
+    shoff = (attr_off + len(attr) + 7) & ~7
+    nsec = len(names)
+    buf = bytearray(shoff + nsec * SHDR)
+
+    def put(off, dta):
+        buf[off:off + len(dta)] = dta
+    put(text_off, text)
+    # .rela.text：r_offset=0x8（段内偏移），符号索引 3 = puts，类型 19 = R_RISCV_CALL_PLT
+    put(rela_off, struct.pack('<QQq', 0x8, (3 << 32) | 19, 0))
+    put(sym_off, b''.join([
+        struct.pack('<IBBHQQ', 0, 0, 0, 0, 0, 0),
+        struct.pack('<IBBHQQ', 0, 3, 0, 1, 0, 0),                      # STT_SECTION, .text
+        struct.pack('<IBBHQQ', n_main, (1 << 4) | 2, 0, 1, 0, len(text)),
+        struct.pack('<IBBHQQ', n_puts, (1 << 4) | 2, 0, 0, 0, 0),      # puts：未定义（外部）
+        struct.pack('<IBBHQQ', n_file, (0 << 4) | 4, 0, 0xfff1, 0, 0),
+    ]))
+    put(strtab_off, bytes(strtab))
+    put(shstrtab_off, bytes(shstrtab))
+    put(attr_off, attr)
+
+    def sec(i, name, stype, flags, addr, off, size, link, info, align, entsize):
+        put(shoff + i * SHDR, struct.pack('<IIQQQQIIQQ', noff[name], stype, flags, addr, off, size,
+                                          link, info, align, entsize))
+    sec(0, '', 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    sec(1, '.text', 1, 6, 0, text_off, len(text), 0, 0, 16, 0)          # AX
+    sec(2, '.rela.text', 4, 0, 0, rela_off, 24, 3, 1, 8, 24)            # link=.symtab, info=.text
+    sec(3, '.symtab', 2, 0, 0, sym_off, 4 * SYM, 4, 3, 8, SYM)          # link=.strtab, info=首个全局
+    sec(4, '.strtab', 3, 0, 0, strtab_off, len(strtab), 0, 0, 1, 0)
+    sec(5, '.shstrtab', 3, 0, 0, shstrtab_off, len(shstrtab), 0, 0, 1, 0)
+    sec(6, '.riscv.attributes', 0x70000003, 0, 0, attr_off, len(attr), 0, 0, 1, 0)
+    sec(7, '.note.GNU-stack', 1, 0, 0, 0, 0, 0, 0, 1, 0)
+
+    ident = bytearray(16)
+    ident[0:4] = b'\x7fELF'
+    ident[4] = 2; ident[5] = 1; ident[6] = 1; ident[7] = 0
+    # ET_REL(1)：没有程序头表（e_phoff = 0），段地址全部为 0
+    put(0, struct.pack('<16sHHIQQQIHHHHHH', bytes(ident), 1, 243, 1, 0,
+                       0, shoff, 0x5, EHDR, 0, 0, SHDR, nsec, 5))
+    path = os.path.join(OUT, 'reloc-riscv64.o')
+    with open(path, 'wb') as f:
+        f.write(bytes(buf))
+    print('%s  %d 字节（ET_REL 目标文件，含 1 条 R_RISCV_CALL_PLT 重定位）' % (path, len(buf)))
 
 
 def make_x86():

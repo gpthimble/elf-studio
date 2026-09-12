@@ -728,7 +728,9 @@ function renderRelocations() {
       '而 -pie / -shared 产物会保留 .rela.dyn、.rela.plt 等，供动态链接器在加载时修补。</p></div>';
     return;
   }
-  const rows = elf.relocations.map(function (r) {
+  const list = S.relocTypeFilter ? elf.relocations.filter(function (r) { return r.type === S.relocTypeFilter; })
+    : elf.relocations;
+  const rows = list.map(function (r) {
     return '<tr class="rel-row" data-off="' + r.fileOff + '">' +
       '<td class="mono">' + esc(r.table) + '</td><td class="mono">' + r.index + '</td>' +
       '<td class="mono">' + hx(r.offset, elf.is64 ? 10 : 6) + '</td>' +
@@ -738,6 +740,7 @@ function renderRelocations() {
   }).join('');
   pane.innerHTML = '<div class="card"><div class="card-h"><b>重定位表</b><span class="muted">共 ' + elf.relocations.length + ' 项</span></div>' +
     relocSectionSummary(elf, elf.shdrs.find(function (s) { return s.name === elf.relocations[0].table; }) || elf.shdrs[0]) +
+    typeFilterBar(elf) +
     '<div class="table-scroll tall"><table class="grid"><thead><tr><th>所在表</th><th>#</th><th>r_offset（虚拟地址）</th>' +
     '<th>类型</th><th>符号</th><th>加数 addend</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
     '<div class="muted small">提示：r_info 是打包字段——64 位下高 32 位为符号索引、低 32 位为类型；32 位下高 24 位为符号索引、低 8 位为类型。' +
@@ -750,6 +753,36 @@ function renderRelocations() {
         selectVaddr(r.offset, 4, { smooth: true });
         toggleRelocXref(tr, r);          // 就地展开字段拆解 + 引用链路
       }
+    });
+  });
+  wireTypeFilterBar(pane);
+}
+
+/** 重定位类型筛选条（含「全部类型」入口，便于按类型聚焦） */
+function typeFilterBar(elf) {
+  const key = relocTypeEnumKey(elf);
+  if (!key || !ENUMS[key]) return '';
+  const used = new Set(elf.relocations.map(function (r) { return r.type; }));
+  const items = ENUMS[key].values.map(function (v) {
+    if (used.has(v.v)) return { v: v.v, name: v.name, count: elf.relocations.filter(function (r) { return r.type === v.v; }).length };
+    return null;
+  }).filter(Boolean);
+  const cur = S.relocTypeFilter;
+  return '<div class="rl-filter"><span class="muted">按类型筛选：</span>' +
+    '<button class="mini rl-f' + (cur === null || cur === undefined ? ' on' : '') + '" data-rt="all">全部 ' + elf.relocations.length + '</button>' +
+    items.map(function (it) {
+      return '<button class="mini rl-f' + (cur === it.v ? ' on' : '') + '" data-rt="' + it.v + '">' +
+        esc(it.name) + ' ×' + it.count + '</button>';
+    }).join('') +
+    (cur !== null && cur !== undefined ? '<button class="mini" data-rt="all">清除筛选 ✕</button>' : '') +
+    '</div>';
+}
+
+function wireTypeFilterBar(root) {
+  $$('.rl-f[data-rt]', root).forEach(function (b) {
+    b.addEventListener('click', function () {
+      S.relocTypeFilter = b.dataset.rt === 'all' ? null : +b.dataset.rt;
+      renderRelocations();
     });
   });
 }
