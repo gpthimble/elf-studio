@@ -56,6 +56,8 @@ function symbolXrefPanel(elf, sym) {
   const sec = (sym.st_shndx > 0 && sym.st_shndx < 0xff00) ? elf.shdrs[sym.st_shndx] : null;
   const contentOff = sym.fileOffset;
   const inbound = symInboundRelocs(elf, sym);
+  // 重定位只能说明「未链接完的文件里谁引用了它」；已链接好的程序要靠地址反查
+  const byAddr = (sym.st_value && sym.st_shndx !== 0) ? scanAddressReferences(elf, sym.st_value) : [];
 
   // ---- 表项自身的字节，按字段着色 ----
   let byteCells = '';
@@ -147,6 +149,21 @@ function symbolXrefPanel(elf, sym) {
       ? '这是一个<b>函数</b>符号，st_value 指向函数体第一条指令，st_size 是函数体长度。'
       : (sym.type === 1 ? '这是一个<b>数据对象</b>符号，st_value 指向变量/数组所在字节。' : '符号类型为 ' + esc(stTypeName(sym.type)) + '。'));
 
+  const addrRefHtml = byAddr.length
+    ? '<div class="xr-list">' + byAddr.map(function (it) {
+      return '<div class="xr-in" data-xr-off="' + it.fileOffset + '" data-xr-size="' + it.size + '">' +
+        '<span class="xr-arrow">←</span>' +
+        '<span class="rl-tag">' + esc(REF_KIND_LABEL[it.kind] || it.kind) + '</span>' +
+        '<span class="mono xs-rt">' + hx(it.addr) + '</span>' +
+        '<span class="mono">' + esc(it.text) + '</span>' +
+        '<span class="muted">' + esc(it.detail) + '</span></div>';
+    }).join('') + '</div>'
+    : '<div class="xr-none">' +
+      (sym.st_value
+        ? '没有在指令或数据中找到对该地址（' + hx(sym.st_value) + '）的引用。' +
+          (sym.st_shndx === 0 ? '' : '如果该符号只被本文件之外使用，这里就应当是空的。')
+        : '该符号没有地址，无法按地址反查。') + '</div>';
+
   return '<div class="xs">' +
     '<div class="xs-head"><b class="mono">' + esc(sym.name || '(匿名符号)') + '</b>' +
     '<span class="pill">' + esc(sym.table) + '[' + sym.index + ']</span>' +
@@ -161,6 +178,9 @@ function symbolXrefPanel(elf, sym) {
     '<table class="grid compact xs-table"><thead><tr><th>字段</th><th>原始值</th><th>含义</th><th>指向 / 引用目标</th></tr></thead>' +
     '<tbody>' + rowHtml + '</tbody></table>' +
     '<div class="xs-sub">谁引用了这个符号（入向引用）</div>' + inboundHtml +
+    '<div class="xs-sub">按地址反查的引用（适用于已链接完成、没有重定位项的文件）</div>' +
+    '<div class="muted small">扫描全部可执行段与数据段：跳转/分支目标、lui/auipc 与后续 12 位立即数合成的地址、数据中等于该地址的指针。</div>' +
+    addrRefHtml +
     '</div>';
 }
 

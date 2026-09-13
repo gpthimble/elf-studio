@@ -4,8 +4,8 @@
  */
 const FILES = [
   'src/util.js', 'src/elf-const.js', 'src/elf-enums.js', 'src/elf-parse.js',
-  'src/disasm-riscv.js', 'src/disasm-x86.js',
-  'src/hexview.js', 'src/app-core.js', 'src/app-panels.js', 'src/app-symbols.js', 'src/app-relocs.js', 'src/app-encoding.js', 'src/app-disasm.js'
+  'src/disasm-riscv.js', 'src/disasm-x86.js', 'src/disasm-dispatch.js',
+  'src/hexview.js', 'src/app-core.js', 'src/app-panels.js', 'src/app-symbols.js', 'src/app-refscan.js', 'src/app-relocs.js', 'src/app-encoding.js', 'src/app-disasm.js'
 ];
 
 let src = '';

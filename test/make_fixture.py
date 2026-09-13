@@ -317,6 +317,7 @@ def main():
         print('%s  %d 字节, %d 个段, .text %d 字节' % (path, info['size'], len(info['sections']), len(text)))
     make_big()
     make_reloc_object()
+    make_sumtest()
     make_x86()
     with open(os.path.join(OUT, 'not-an-elf.bin'), 'wb') as f:
         f.write(b'This is definitely not an ELF file, just some plain text bytes.\n' * 4)
@@ -411,6 +412,115 @@ def make_reloc_object():
     with open(path, 'wb') as f:
         f.write(bytes(buf))
     print('%s  %d 字节（ET_REL 目标文件，含 R_RISCV_CALL_PLT + R_RISCV_RELAX 两条重定位）' % (path, len(buf)))
+
+
+def make_sumtest():
+    """构造一个**已经链接完成、没有重定位项**的裸机 RISC-V 程序（ET_EXEC），
+       指令流与真实工程一致：用 auipc + addi 组合出符号地址来初始化栈指针、
+       装载常量、记录签名区，并用 jal 调用函数。
+       这类文件里「谁引用了哪个符号」只能靠反汇编按地址反查，重定位表里是没有的。"""
+    text_addr = 0x80000000
+    text = b''.join([
+        struct.pack('<I', auipc(2, 0x5)),        # 80000000  auipc sp, 0x5
+        struct.pack('<I', addi(2, 2, 512)),      # 80000004  addi  sp, sp, 512   → 80005200 <topofstack>
+        struct.pack('<I', auipc(5, 0x4)),        # 80000008  auipc t0, 0x4
+        struct.pack('<I', addi(5, 5, -8)),       # 8000000c  addi  t0, t0, -8   → 80004000 <N>
+        struct.pack('<I', ld(10, 5, 0)),         # 80000010  ld    a0, 0(t0)
+        struct.pack('<I', csrrs(24, 0xc02, 0)),  # 80000014  rdinstret s8
+        struct.pack('<I', jal(1, 0x2c)),         # 80000018  jal   80000044 <sum>
+        struct.pack('<I', csrrs(25, 0xc02, 0)),  # 8000001c  rdinstret s9
+        struct.pack('<I', sub(25, 25, 24)),      # 80000020  sub   s9, s9, s8
+        struct.pack('<I', auipc(5, 0x4)),        # 80000024  auipc t0, 0x4
+        struct.pack('<I', addi(5, 5, -28)),      # 80000028  addi  t0, t0, -28  → 80004008 <begin_signature>
+        struct.pack('<I', sd(10, 5, 0)),         # 8000002c  sd    a0, 0(t0)
+        struct.pack('<I', sd(25, 5, 8)),         # 80000030  sd    s9, 8(t0)
+        struct.pack('<I', addi(10, 0, 1)),       # 80000034  write_tohost: li a0, 1
+        struct.pack('<I', ret()),                # 80000038  ret
+        struct.pack('<I', nop()),                # 8000003c  nop
+        struct.pack('<I', nop()),                # 80000040  nop
+        struct.pack('<I', add(10, 10, 11)),      # 80000044  sum: add a0, a0, a1
+        struct.pack('<I', ret()),                # 80000048  ret
+    ])
+    data_addr = 0x80004000
+    data = struct.pack('<Q', 8) + bytes(16)      # N = 8；begin_signature 占 16 字节
+    bss_addr, bss_size = 0x80005000, 0x1000      # topofstack = 0x80005200 落在其中
+
+    EHDR, PHDR, SHDR, SYM = 64, 56, 64, 24
+    text_off = 0x1000
+    data_off = 0x2000
+    sym_off = 0x2100
+    strtab = bytearray(b'\x00')
+
+    def addstr(s):
+        o = len(strtab)
+        strtab.extend(s.encode() + b'\x00')
+        return o
+    n_entry = addstr('rvtest_entry_point'); n_tohost = addstr('write_tohost'); n_sum = addstr('sum')
+    n_N = addstr('N'); n_sig = addstr('begin_signature'); n_top = addstr('topofstack'); n_stack = addstr('stack_bottom')
+    strtab_off = sym_off + 8 * SYM
+    shstrtab = bytearray(b'\x00')
+
+    def shstr(s):
+        o = len(shstrtab)
+        shstrtab.extend(s.encode() + b'\x00')
+        return o
+    names = ['', '.text', '.data', '.bss', '.symtab', '.strtab', '.shstrtab']
+    noff = {n: (shstr(n) if n else 0) for n in names}
+    shstrtab_off = strtab_off + len(strtab)
+    shoff = (shstrtab_off + len(shstrtab) + 7) & ~7
+    nsec = len(names)
+    buf = bytearray(shoff + nsec * SHDR)
+
+    def put(off, dta):
+        buf[off:off + len(dta)] = dta
+    put(text_off, text)
+    put(data_off, data)
+    # 符号表：注意 topofstack / stack_bottom 位于 .bss（文件里没有内容）
+    def sym(name_off, info, other, shndx, value, size):
+        return struct.pack('<IBBHQQ', name_off, info, other, shndx, value, size)
+    put(sym_off, b''.join([
+        sym(0, 0, 0, 0, 0, 0),
+        sym(0, 3, 0, 1, text_addr, len(text)),                       # .text 段符号
+        sym(n_entry, (1 << 4) | 2, 0, 1, text_addr, 0x34),           # 入口函数
+        sym(n_tohost, (0 << 4) | 2, 0, 1, text_addr + 0x34, 4),
+        sym(n_sum, (1 << 4) | 2, 0, 1, text_addr + 0x44, 8),         # 被 jal 调用
+        sym(n_N, (1 << 4) | 1, 0, 2, data_addr, 8),                  # 被 auipc+addi 装载
+        sym(n_sig, (1 << 4) | 1, 0, 2, data_addr + 8, 16),
+        sym(n_top, (1 << 4) | 1, 0, 3, bss_addr + 0x200, 0),         # 栈顶（.bss）
+        sym(n_stack, (1 << 4) | 1, 0, 3, bss_addr, 0),               # 栈底（.bss）
+    ]))
+    put(strtab_off, bytes(strtab))
+    put(shstrtab_off, bytes(shstrtab))
+
+    def sec(i, name, stype, flags, addr, off, size, link, info, align, entsize):
+        put(shoff + i * SHDR, struct.pack('<IIQQQQIIQQ', noff[name], stype, flags, addr, off, size,
+                                          link, info, align, entsize))
+    sec(0, '', 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    sec(1, '.text', 1, 6, text_addr, text_off, len(text), 0, 0, 16, 0)       # AX
+    sec(2, '.data', 1, 3, data_addr, data_off, len(data), 0, 0, 8, 0)        # WA
+    # .bss：SHT_NOBITS，有地址有大小，但文件里没有字节。sh_offset 只是占位值。
+    sec(3, '.bss', 8, 3, bss_addr, data_off + len(data), bss_size, 0, 0, 8, 0)
+    sec(4, '.symtab', 2, 0, 0, sym_off, 8 * SYM, 5, 2, 8, SYM)               # link=.strtab
+    sec(5, '.strtab', 3, 0, 0, strtab_off, len(strtab), 0, 0, 1, 0)
+    sec(6, '.shstrtab', 3, 0, 0, shstrtab_off, len(shstrtab), 0, 0, 1, 0)
+
+    phdrs = [
+        (1, 5, text_off, text_addr, text_addr, len(text), len(text), 0x1000),                 # R+X
+        (1, 6, data_off, data_addr, data_addr, len(data), 0x2000, 0x1000),                    # R+W，含 .bss
+        (0x6474e551, 6, 0, 0, 0, 0, 0, 0x10),                                                 # GNU_STACK
+    ]
+    for i, p in enumerate(phdrs):
+        put(EHDR + i * PHDR, struct.pack('<IIQQQQQQ', *p))
+
+    ident = bytearray(16)
+    ident[0:4] = b'\x7fELF'
+    ident[4] = 2; ident[5] = 1; ident[6] = 1; ident[7] = 0
+    put(0, struct.pack('<16sHHIQQQIHHHHHH', bytes(ident), 2, 243, 1, text_addr,
+                       EHDR, shoff, 0x5, EHDR, PHDR, len(phdrs), SHDR, nsec, 6))
+    path = os.path.join(OUT, 'sumtest.elf')
+    with open(path, 'wb') as f:
+        f.write(bytes(buf))
+    print('%s  %d 字节（ET_EXEC，无重定位；符号引用需按地址反查）' % (path, len(buf)))
 
 
 def make_x86():

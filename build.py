@@ -21,10 +21,12 @@ JS_FILES = [
     'elf-parse.js',     # ELF 解析器
     'disasm-riscv.js',  # RISC-V 反汇编
     'disasm-x86.js',    # x86/x86-64 反汇编（简化）
+    'disasm-dispatch.js',  # 按架构分派反汇编
     'hexview.js',       # 多色块 Hex 视图
     'app-core.js',      # 状态、探针、概览面板
     'app-panels.js',    # 各结构面板
     'app-symbols.js',   # 符号表项解析与引用关系面板
+    'app-refscan.js',   # 按地址反查引用（已链接文件）
     'app-relocs.js',    # 重定位项解析与引用链路面板
     'app-encoding.js',  # 指令位域对照面板（二进制 ↔ 助记符）
     'app-disasm.js',    # 反汇编视图

@@ -719,7 +719,83 @@ ok(sum.length > 0 && sum[0].bytes > 0, '概览统计有数据');
   }
 }
 
-/* ============================ 13. 字典完整性 ============================ */
+/* ===== 13. 已链接文件里的符号引用：没有重定位项时按地址反查（sumtest.elf） ===== */
+{
+  const elf = parseELF(Deno.readFileSync(fx + 'sumtest.elf'), 'sumtest.elf');
+  ok(elf.valid, 'sumtest.elf 解析成功');
+  eq(elf.ehdr.e_type, 2, 'e_type = ET_EXEC（已链接完成）');
+  eq(elf.relocations.length, 0, '该文件没有任何重定位项——引用关系只能按地址反查');
+
+  // 指令字节与真实工程里的 objdump 输出逐字对照
+  const text = elf.sectionByName.get('.text');
+  const bytes = sectionBytes(elf, text);
+  const words = [];
+  for (let i = 0; i + 4 <= bytes.length; i += 4) {
+    words.push(bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16) | (bytes[i + 3] << 24));
+  }
+  const expectWords = [
+    0x00005117, 0x20010113, 0x00004297, 0xff828293, 0x0002b503, 0xc0202c73,
+    0x02c000ef, 0xc0202cf3, 0x418c8cb3, 0x00004297, 0xfe428293, 0x00a2b023, 0x0192b423
+  ];
+  let wordsOk = true;
+  for (let i = 0; i < expectWords.length; i++) if ((words[i] >>> 0) !== (expectWords[i] >>> 0)) wordsOk = false;
+  eq(wordsOk, true, '指令编码与 objdump 列出的机器码一致');
+
+  const S_ = (n) => elf.symbols.find(s => s.name === n);
+  const top = S_('topofstack'), N = S_('N'), sum = S_('sum'), sig = S_('begin_signature');
+  ok(top && N && sum && sig, '四个符号都已解析');
+
+  // ① auipc + addi 组合出符号地址
+  const refTop = scanAddressReferences(elf, top.st_value);
+  eq(refTop.length, 1, 'topofstack 找到 1 处引用');
+  eq(refTop[0].kind, 'pair', '识别为高低位配对');
+  eq(refTop[0].addr, 0x80000004, '引用发生在 addi sp, sp, 512（0x80000004）');
+  eq(refTop[0].pairAddr, 0x80000000, '配对的高位装载是 0x80000000 的 auipc');
+  ok(refTop[0].detail.indexOf('0x80005200') >= 0, '说明里给出合成后的地址 0x80005200');
+
+  const refN = scanAddressReferences(elf, N.st_value);
+  eq(refN.length, 1, 'N 找到 1 处引用');
+  eq(refN[0].addr, 0x8000000c, '引用发生在 addi t0, t0, -8（0x8000000c）');
+
+  const refSig = scanAddressReferences(elf, sig.st_value);
+  eq(refSig.length, 1, 'begin_signature 找到 1 处引用');
+  eq(refSig[0].addr, 0x80000028, '引用发生在 addi t0, t0, -28（0x80000028）');
+
+  // ② jal 直接调用
+  const refSum = scanAddressReferences(elf, sum.st_value);
+  eq(refSum.length, 1, 'sum 找到 1 处引用');
+  eq(refSum[0].kind, 'branch', '识别为跳转/调用目标');
+  eq(refSum[0].addr, 0x80000018, '引用发生在 jal（0x80000018）');
+
+  // 没有被引用的符号应当返回空，而不是乱匹配
+  eq(scanAddressReferences(elf, S_('rvtest_entry_point').st_value).length, 0, '入口符号没有被其它指令引用');
+
+  // ③ 反汇编里的符号地址标注（与 objdump 的 “# 80005200 <topofstack>” 一致）
+  const symMap = new Map();
+  for (const s of elf.symbols) if (s.st_value && s.type !== 4) symMap.set(s.st_value, s);
+  const insns = riscvDisassemble(bytes, text.sh_addr, { bits: 64, symbols: symMap, hasRVC: true, fileBase: text.sh_offset });
+  const addiSp = insns.find(i => i.addr === 0x80000004);
+  eq(addiSp.resolvedSymbol, 'topofstack', 'addi sp, sp, 512 被标注为 topofstack');
+  eq(addiSp.resolvedAddress, 0x80005200, '标注的地址为 0x80005200');
+  const auipcSp = insns.find(i => i.addr === 0x80000000);
+  eq(auipcSp.resolvedSymbol, 'topofstack', '配对的 auipc 同样被标注');
+  const addiN = insns.find(i => i.addr === 0x8000000c);
+  eq(addiN.resolvedSymbol, 'N', 'addi t0, t0, -8 被标注为 N');
+  const jalSum = insns.find(i => i.addr === 0x80000018);
+  eq(jalSum.targetSymbol, 'sum', 'jal 的目标被解析成 sum');
+
+  // ④ .bss：SHT_NOBITS，没有文件字节，也不该被当作可定位的内容
+  const bss = elf.sectionByName.get('.bss');
+  eq(bss.sh_type, 8, '.bss 是 SHT_NOBITS');
+  eq(sectionBytes(elf, bss).length, 0, '.bss 没有文件字节');
+  eq(top.st_shndx, bss.index, 'topofstack 属于 .bss');
+  eq(top.fileOffset, undefined, '.bss 中的符号没有内容偏移');
+  eq(top.sec, '.bss', '符号归属段显示为 .bss');
+  eq(vaddrToOffset(elf, top.st_value), null, '.bss 的地址不会映射到文件偏移');
+  eq(offsetToVaddr(elf, bss.sh_offset), null, '.bss 的 sh_offset 也不会映射成虚拟地址');
+}
+
+/* ============================ 14. 字典完整性 ============================ */
 for (const key of Object.keys(ENUMS)) {
   const e = ENUMS[key];
   const composite = Array.isArray(e.parts) && e.parts.length > 0;

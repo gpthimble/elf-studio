@@ -114,8 +114,10 @@ function decodeRiscv32(i, addr, bits, opts, _o, rel, immHex, abs) {
   const aq = (i >> 26) & 1, rl = (i >> 25) & 1;
 
   switch (opcode) {
-    case 0x37: return mk(4, `lui ${R(rd)}, ${hex(immU(i) << 12)}`, { rd });
-    case 0x17: return mk(4, `auipc ${R(rd)}, ${hex(immU(i) << 12)}`, { rd });
+    // lui / auipc 的高 20 位立即数（左移 12 位后的值）也带出来，
+    // 供「按地址反查引用」把 lui+addi 之类的组合还原成完整地址。
+    case 0x37: return mk(4, `lui ${R(rd)}, ${hex(immU(i) << 12)}`, { rd, imm: immU(i) << 12, hi20: true });
+    case 0x17: return mk(4, `auipc ${R(rd)}, ${hex(immU(i) << 12)}`, { rd, imm: immU(i) << 12, hi20: true, pcrel: true });
     case 0x6f: {
       const off = immJ(i), tgt = abs(addr + off);
       if (rd === 0 && opts.aliases !== false) return mk(4, `j ${hex(tgt)}`, { rd, target: tgt, isJump: true });
@@ -125,7 +127,7 @@ function decodeRiscv32(i, addr, bits, opts, _o, rel, immHex, abs) {
       const off = immI(i);
       if (rd === 0 && rs1 === 1 && off === 0) return mk(4, 'ret', { isReturn: true, isJump: true });
       if (off === 0 && rd === 0) return mk(4, `jr ${R(rs1)}`, { rs1, rd, isJump: true, isReturn: rs1 === 1 });
-      return mk(4, `jalr ${R(rd)}, ${off}, ${R(rs1)}`, { rd, rs1, target: null, isCall: rd === 1 || rd === 5, isJump: true });
+      return mk(4, `jalr ${R(rd)}, ${off}, ${R(rs1)}`, { rd, rs1, imm: off, target: null, isCall: rd === 1 || rd === 5, isJump: true });
     }
     case 0x63: {
       const off = immB(i), tgt = abs(addr + off);
@@ -514,6 +516,7 @@ function riscvDisassemble(code, vaddr, opts) {
   let pos = 0;
   const lines = opts.symbols || new Map();
   const limit = opts.maxBytes ? Math.min(code.length, opts.maxBytes) : code.length;
+  let hiPending = null;        // 待配对的高 20 位装载（lui / auipc）
   while (pos < limit) {
     const addr = (vaddr + pos) >>> 0;
     let insn;
@@ -540,6 +543,38 @@ function riscvDisassemble(code, vaddr, opts) {
       const s = lines.get(addr);
       insn.symbol = s.name;
       insn.isFunctionEntry = true;
+    }
+    // 还原 lui/auipc + 低 12 位 组合出的完整地址，命中符号时标注出来，
+    // 与 objdump 的 “# 80005200 <topofstack>” 行为一致。
+    if (insn.hi20) {
+      // 上一条高位装载没有与低位配对 → 它自己可能就是完整地址
+      if (hiPending) {
+        const hp = out[hiPending.index];
+        const hitH = lines.get(hiPending.base);
+        if (hp && hitH) { hp.resolvedAddress = hiPending.base; hp.resolvedSymbol = hitH.name; }
+      }
+      hiPending = { rd: insn.rd, base: (insn.pcrel ? (addr + insn.imm) : insn.imm) >>> 0, index: out.length };
+    } else if (hiPending) {
+      const off = (insn.rs1 === hiPending.rd)
+        ? (insn.memOffset !== undefined ? insn.memOffset : insn.imm)
+        : null;
+      if (off !== undefined && off !== null) {
+        const full = (hiPending.base + off) >>> 0;
+        const hit = lines.get(full);
+        if (hit) {
+          insn.resolvedAddress = full;
+          insn.resolvedSymbol = hit.name;
+          const prev = out[hiPending.index];
+          if (prev) { prev.resolvedAddress = full; prev.resolvedSymbol = hit.name; }
+        }
+        hiPending = null;
+      } else if (insn.rd === hiPending.rd) {
+        // 同一个寄存器被改写，说明高位装载已经用完 → 若它本身命中符号就标注
+        const hp = out[hiPending.index];
+        const hitH = lines.get(hiPending.base);
+        if (hp && hitH) { hp.resolvedAddress = hiPending.base; hp.resolvedSymbol = hitH.name; }
+        hiPending = null;
+      }
     }
     const tgt = insn.target;
     if (tgt !== undefined && tgt !== null) {

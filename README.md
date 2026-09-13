@@ -48,13 +48,15 @@ Drag in your own ELF file, or click "Load built-in sample" to open a small RISC-
 
 - Linear sweep over sections marked `SHF_EXECINSTR`. For RISC-V it covers RV32/RV64 I/M/A/F/D, the compressed C extension, Zicsr/Zifencei and the common Zba/Zbb/Zbs/Zbc instructions, recognises pseudo-instructions (`li/mv/ret/jr/j/nop/beqz/bnez/csrr`) and labels jump and branch targets that match symbols.
 - Clicking an instruction line locates the corresponding bytes in the hex view. The "fields" button on a line expands the encoding breakdown for that instruction: one colour block per specification field, the bit layout, and the binary value and meaning of each field, showing which bits produce the mnemonic.
+- Addresses assembled from `lui`/`auipc` plus a 12-bit immediate are annotated with the symbol they resolve to, in the same form objdump prints them: `addi sp, sp, 512  # 0x80005200 <topofstack>`.
 - x86-64 uses a simplified decoder that covers common integer and SSE instructions. Encodings outside that subset are listed as `.byte`, but instruction lengths remain correct.
 
 ### Symbol table
 
 - Parses `.symtab` and `.dynsym` and lists name, `st_value`, `st_size`, binding, type, visibility and section, plus separate columns for the offset of the symbol table entry and the offset of the target content. Supports search and filtering by type, binding and table.
 - Each row has four actions: entry, content, analysis and disassembly, jumping to the symbol table entry bytes, the section content, the analysis panel, or the disassembly view.
-- The analysis panel groups the entry bytes by field and draws the references: `st_name` points into the string table for the name, `st_shndx` points to the section header and its content, `st_value` points to the content offset, and `st_size` gives the byte range. Relocations that reference the symbol are listed as well.
+- The analysis panel groups the entry bytes by field and draws the references: `st_name` points into the string table for the name, `st_shndx` points to the section header and its content, `st_value` points to the content offset, and `st_size` gives the byte range.
+- References are collected from two sources. Relocations cover object files that have not been linked yet. For linked files, where the addresses are already written into the instructions and the relocation entries are gone, the tool scans the disassembly and the data sections for the symbol address: jump and branch targets, `lui`/`auipc` paired with a following 12-bit immediate, and pointer-sized values equal to the address. Each hit is listed with the instruction or location it came from and can be clicked to jump there.
 
 ### Relocations
 
@@ -67,6 +69,7 @@ Drag in your own ELF file, or click "Load built-in sample" to open a small RISC-
 
 - `.text` shows an instruction preview, `.symtab` an entry decode table, `.strtab` its strings, `.rela.*` the relocation entries, `.dynamic` its tags and values, and `.note.*` and `.riscv.attributes` are decoded in place.
 - `.rodata`, `.data` and similar sections get a decode panel with four views: strings, 32-bit words, 64-bit words and pointer candidates. Word views show hex, decimal and floating-point interpretations, and values that fall inside a mapped section are resolved to "section + offset", including the symbol name when one matches.
+- Sections of type `SHT_NOBITS` (`.bss` and similar) occupy no space in the file. Their `sh_offset` is only a placeholder, so these sections are labelled as such and clicking one jumps to its section header entry instead of a meaningless file offset; symbols defined in them show no content offset, and their addresses are not mapped back to file bytes.
 
 ### Other
 
@@ -95,7 +98,7 @@ Tests run the browser scripts directly under Deno, together with binary fixtures
 ```sh
 sh test/run_all.sh                          # fixtures, tests, syntax check, build
 python3 test/make_fixture.py
-deno run --allow-read test/run_tests.js     # 1902 assertions
+deno run --allow-read test/run_tests.js     # 1932 assertions
 deno run --allow-read test/syntax_check.js  # syntax and DOM reference checks
 ```
 
@@ -107,7 +110,7 @@ Correctness is checked against three independent sources:
 
 The tests also scan every piece of documentation text (relocation notes, enum descriptions, field documentation, section purpose dictionary) and reject wording that depends on context, such as "same as above", while requiring a minimum level of detail.
 
-Fixtures: `hello-riscv32.elf` and `hello-riscv64.elf` (small hand-built programs), `big-riscv64.elf` (47 sections, 406 symbols, 39 relocations, 200 functions), `reloc-riscv64.o` (with `R_RISCV_CALL_PLT` followed by `R_RISCV_RELAX`), and `x86-64-sample.o` (clang output).
+Fixtures: `hello-riscv32.elf` and `hello-riscv64.elf` (small hand-built programs), `big-riscv64.elf` (47 sections, 406 symbols, 39 relocations, 200 functions), `reloc-riscv64.o` (with `R_RISCV_CALL_PLT` followed by `R_RISCV_RELAX`), `sumtest.elf` (a linked bare-metal program with no relocations, where symbol references can only be recovered by address scanning), and `x86-64-sample.o` (clang output).
 
 ## Project layout
 
@@ -125,10 +128,12 @@ src/
   elf-parse.js           ELF parser
   disasm-riscv.js        RISC-V disassembler and instruction field breakdown
   disasm-x86.js          x86 / x86-64 disassembler (common subset)
+  disasm-dispatch.js     Dispatcher that picks the decoder for the architecture
   hexview.js             Multi-colour hex view
   app-core.js            State, file loading, synchronisation, byte inspector, overview
   app-panels.js          Structure panels
   app-symbols.js         Symbol table entry analysis and references
+  app-refscan.js         Address-based reference scanning
   app-relocs.js          Relocation analysis and reference chain
   app-encoding.js        Instruction encoding panel
   app-disasm.js          Disassembly view

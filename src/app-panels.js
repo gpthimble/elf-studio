@@ -386,17 +386,25 @@ function previewInsns(elf, sec, limit) {
   if (limit >= 1e8) {                      // 全量结果缓存，避免同一段重复反汇编
     elf._disCache = elf._disCache || new Map();
     if (elf._disCache.has(sec.index)) return elf._disCache.get(sec.index);
-    const all = disassemble(elf, sec, code, sec.sh_addr);
+    const all = disassemble(elf, sec, code, sec.sh_addr,
+      { aliases: S.disasm.aliases, forceC: S.disasm.forceC });
     elf._disCache.set(sec.index, all);
     return all;
   }
   const maxBytes = limit < 1e8 ? Math.min(code.length, limit * 4 + 16) : code.length;
-  return disassemble(elf, sec, code.subarray(0, maxBytes), sec.sh_addr);
+  return disassemble(elf, sec, code.subarray(0, maxBytes), sec.sh_addr,
+    { aliases: S.disasm.aliases, forceC: S.disasm.forceC });
 }
 
 /** 每个段的内容预览：反汇编 / 符号名 / 字符串 / 重定位 / 十六进制转储 */
 function sectionPreview(elf, sec) {
-  if (sec.sh_type === 8) return '<div class="sp-note">SHT_NOBITS：该段在文件中不占字节，只在内存里按 sh_size 分配（典型如 .bss）。</div>';
+  if (sec.sh_type === 8) {
+    // sh_offset 只是占位值，必须说清楚，否则容易被当成「内容的偏移」去定位
+    return '<div class="sp-note">SHT_NOBITS：该段在文件中<b>不占用任何字节</b>，运行时才按 sh_size 分配内存：' +
+      hx(sec.sh_addr, elf.is64 ? 10 : 6) + ' – ' + hx(sec.sh_addr + sec.sh_size, elf.is64 ? 10 : 6) +
+      '（' + fmtComma(sec.sh_size) + ' 字节）。段头里的 sh_offset（' + hx(sec.sh_offset) +
+      '）只是占位值，不能用来读取文件内容。</div>';
+  }
   const bytes = sectionBytes(elf, sec);
   if (!bytes.length) return '<div class="sp-note muted">该段没有可读取的文件字节。</div>';
 
@@ -410,7 +418,8 @@ function sectionPreview(elf, sec) {
         '<span class="sp-bytes">' + raw + '</span>' +
         '<span class="sp-text">' + esc(ins.text) + '</span>' +
         '<span class="sp-note-cell">' + (ins.symbol ? '<span class="tag sym">' + esc(ins.symbol) + '</span>' : '') +
-        (ins.targetSymbol ? '<span class="tag target">' + esc(ins.targetSymbol) + '</span>' : '') + '</span></div>';
+        (ins.targetSymbol ? '<span class="tag target">' + esc(ins.targetSymbol) + '</span>' : '') +
+        (ins.resolvedSymbol ? '<span class="tag resolved"># ' + hx(ins.resolvedAddress) + ' &lt;' + esc(ins.resolvedSymbol) + '&gt;</span>' : '') + '</span></div>';
     }).join('');
     const insnCount = previewInsns(elf, sec, 1e9).length;
     return '<div class="sp-toolbar"><span class="muted">指令预览（前 ' + PREVIEW_LINES + ' 条，共 ' +
@@ -508,14 +517,23 @@ function renderSections() {
   if (!elf.valid) { pane.innerHTML = ''; return; }
   const cards = elf.shdrs.filter(function (s) { return s.index !== 0; }).map(function (s) {
     const noBits = s.sh_type === 8;
-    return '<div class="card sec-card" data-sec-index="' + s.index + '" data-off="' + s.sh_offset + '" data-size="' + Math.max(1, s.sh_size) + '">' +
+    // SHT_NOBITS（如 .bss）在文件里没有字节：它的 sh_offset 只是占位值，
+    // 不能拿来定位文件内容，因此这类卡片不带 data-off，改跳段头表项。
+    const attrs = noBits
+      ? ' data-nobits="1" data-shdr-off="' + s.fileOff + '"'
+      : ' data-off="' + s.sh_offset + '" data-size="' + Math.max(1, Math.min(s.sh_size, elf.size - s.sh_offset)) + '"';
+    return '<div class="card sec-card' + (noBits ? ' nobits' : '') + '" data-sec-index="' + s.index + '"' + attrs + '>' +
       '<div class="card-h"><i class="dot" style="background:var(--c-' + s.kind + ')"></i>' +
       '<b class="mono">' + esc(s.name || '(无名)') + '</b>' +
       '<span class="pill">' + esc(shTypeName(s.sh_type)) + '</span>' +
       '<span class="pill">' + shFlagsText(s.sh_flags) + '</span>' +
       '<span class="muted">虚拟地址 ' + hx(s.sh_addr, elf.is64 ? 10 : 6) + ' · 文件偏移 ' +
-      (noBits ? '— (SHT_NOBITS)' : hx(s.sh_offset)) + ' · ' + fmtComma(s.sh_size) + ' 字节' +
-      (noBits ? '（只在内存中占位，文件里没有对应字节）' : '') + '</span></div>' +
+      (noBits ? '无（SHT_NOBITS）' : hx(s.sh_offset)) + ' · ' + fmtComma(s.sh_size) + ' 字节' +
+      (noBits ? '（只在内存中占位，文件里没有对应字节）' : '') + '</span>' +
+      (noBits
+        ? '<button class="mini" data-sel="' + s.fileOff + ',' + (elf.is64 ? 64 : 40) + '">选中段头</button>'
+        : '<button class="mini" data-sel="' + s.sh_offset + ',' + Math.min(s.sh_size, 4096) + '">定位内容</button>') +
+      '</div>' +
       (s.purpose ? '<div class="purpose">📘 ' + esc(s.purpose) + '</div>' : '') +
       '<div class="sec-content">' + sectionPreview(elf, s) + '</div>' +
       '</div>';
@@ -523,6 +541,18 @@ function renderSections() {
   pane.innerHTML = cards;
   $$('.sec-card', pane).forEach(function (c) {
     c.addEventListener('click', function (e) {
+      // NOBITS 段（.bss 等）：文件里没有内容可定位，跳到段头表项并说明原因
+      if (c.dataset.nobits) {
+        const nobitsBtn = e.target.closest('[data-sel]');
+        const shdrOff = +c.dataset.shdrOff;
+        if (!nobitsBtn) {
+          selectBytes(shdrOff, S.elf.is64 ? 64 : 40, { smooth: true });
+          const sec = S.elf.shdrs[+c.dataset.secIndex];
+          setStatus(sec.name + ' 是 SHT_NOBITS 段：它在文件里不占用任何字节，只在运行时按 sh_size 分配内存' +
+            '（' + fmtComma(sec.sh_size) + ' 字节 @ ' + hx(sec.sh_addr) + '），因此已改为定位它的段头表项 ' + hx(shdrOff) + '。');
+        }
+        return;
+      }
       const modeBtn = e.target.closest('.sp-mode');
       if (modeBtn) {
         e.stopPropagation();

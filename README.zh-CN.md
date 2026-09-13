@@ -46,13 +46,15 @@
 
 - 对带 `SHF_EXECINSTR` 的段做线性扫描。RISC-V 覆盖 RV32/RV64 的 I/M/A/F/D、压缩指令 C、Zicsr/Zifencei 以及常用 Zba/Zbb/Zbs/Zbc，识别 `li/mv/ret/jr/j/nop/beqz/bnez/csrr` 等伪指令，跳转与分支目标命中符号表时标出函数名。
 - 点击指令行会同步定位左侧 Hex；指令行右侧的「位域」按钮就地展开该指令的编码拆解：按规范切开的字段色块、位号、每个字段的二进制与含义，用来说明助记符是由哪些位决定的。
+- 由 `lui`/`auipc` 与 12 位立即数合成的地址会标注出它落在哪个符号上，形式与 objdump 一致：`addi sp, sp, 512  # 0x80005200 <topofstack>`。
 - x86-64 使用简化解码器，覆盖常见整数与 SSE 指令，未覆盖的编码以 `.byte` 列出，指令长度仍然可靠。
 
 ### 符号表
 
 - 解析 `.symtab` 与 `.dynsym`，列出名称、`st_value`、`st_size`、绑定、类型、可见性、所属段，以及符号表项偏移与内容偏移两列；支持搜索与按类型、绑定、所属表过滤。
 - 每行有「表项 / 内容 / 解析 / 反汇编」四个动作，分别跳到符号表项字节、段内内容、解析面板与反编译视图。
-- 解析面板把表项按字段着色分组并画出引用关系：`st_name` 指向字符串表中的名字，`st_shndx` 指向段头与段内容，`st_value` 指向内容偏移，`st_size` 给出字节区间；同时列出引用该符号的重定位项。
+- 解析面板把表项按字段着色分组并画出引用关系：`st_name` 指向字符串表中的名字，`st_shndx` 指向段头与段内容，`st_value` 指向内容偏移，`st_size` 给出字节区间。
+- 引用关系来自两处。重定位表适用于尚未链接完的目标文件；对于已经链接完成、地址早已写进指令、重定位项消失的文件，工具会扫描反汇编与数据段来按地址反查：跳转与分支目标、`lui`/`auipc` 与紧随其后的 12 位立即数合成的地址、以及数据段中等于该地址的指针。每条引用都注明来自哪条指令或哪个位置，点击即可跳转。
 
 ### 重定位
 
@@ -65,6 +67,7 @@
 
 - `.text` 列出指令预览；`.symtab` 给出表项解码表；`.strtab` 列出字符串；`.rela.*` 列出重定位项；`.dynamic` 列出标签与取值；`.note.*` 与 `.riscv.attributes` 就地解析。
 - `.rodata`、`.data` 等提供内容解码面板，可在字符串、32 位字、64 位字、指针候选四种视图间切换；字视图给出十六进制、十进制与浮点解读，落在已映射段内的值会解析成「段名 + 偏移」，能对应到函数时同时给出符号名。
+- `SHT_NOBITS` 类型的段（`.bss` 等）在文件中不占字节，它的 `sh_offset` 只是占位值，因此这类段会明确标注出来，点击时跳到段头表项而不是一个没有意义的位置；其中的符号没有内容偏移，地址也不会被映射回文件字节。
 
 ### 其它
 
@@ -93,7 +96,7 @@
 ```sh
 sh test/run_all.sh                          # 生成夹具、跑测试、语法检查、打包
 python3 test/make_fixture.py
-deno run --allow-read test/run_tests.js     # 1902 项断言
+deno run --allow-read test/run_tests.js     # 1932 项断言
 deno run --allow-read test/syntax_check.js  # 语法与 DOM 引用检查
 ```
 
@@ -105,7 +108,7 @@ deno run --allow-read test/syntax_check.js  # 语法与 DOM 引用检查
 
 测试还会扫描全部说明文案（重定位说明、枚举说明、字段文档、段用途词典），禁止「同上」「同前」这类依赖上下文的措辞，并要求每条说明达到最低完整度。
 
-夹具：`hello-riscv32.elf`、`hello-riscv64.elf`（手工构造的小程序）、`big-riscv64.elf`（47 个段、406 个符号、39 条重定位、200 个函数）、`reloc-riscv64.o`（含 `R_RISCV_CALL_PLT` 与紧随其后的 `R_RISCV_RELAX`）、`x86-64-sample.o`（clang 产物）。
+夹具：`hello-riscv32.elf`、`hello-riscv64.elf`（手工构造的小程序）、`big-riscv64.elf`（47 个段、406 个符号、39 条重定位、200 个函数）、`reloc-riscv64.o`（含 `R_RISCV_CALL_PLT` 与紧随其后的 `R_RISCV_RELAX`）、`sumtest.elf`（已链接完成、没有重定位项，符号引用只能按地址反查）、`x86-64-sample.o`（clang 产物）。
 
 ## 项目结构
 
@@ -123,10 +126,12 @@ src/
   elf-parse.js           ELF 解析器
   disasm-riscv.js        RISC-V 反汇编与指令位域拆解
   disasm-x86.js          x86 / x86-64 反汇编（常用子集）
+  disasm-dispatch.js     按架构分派反汇编
   hexview.js             多色块 Hex 视图
   app-core.js            状态、文件加载、联动、字节探针、概览
   app-panels.js          各结构面板
   app-symbols.js         符号表项解析与引用关系
+  app-refscan.js         按地址反查引用
   app-relocs.js          重定位解析与引用链路
   app-encoding.js        指令编码对照面板
   app-disasm.js          反汇编视图

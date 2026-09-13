@@ -723,6 +723,7 @@ ul.plain li.warn { color: var(--warn); }
 .tag { font-size: 10.5px; padding: 0 5px; border-radius: 8px; }
 .tag.sym { color: #9fd0ff; background: #16324a; }
 .tag.target { color: #7fe0bd; background: #143129; }
+.tag.resolved { color: #c3b6ff; background: #241f3d; }
 .tag.wa { color: #ffd43b; background: #2c2712; }
 .tag.err { color: #ff9d9d; background: #3a1c1c; }
 .more {
